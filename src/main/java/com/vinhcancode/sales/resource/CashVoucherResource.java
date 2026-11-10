@@ -295,6 +295,18 @@ public class CashVoucherResource {
     }
 
     // ---------- Tao phieu thu/chi tu phieu nhap/xuat ----------
+    @GET @Path("/vouchers/by-source/{docId}")
+    public Map<String, Object> getBySource(@PathParam("docId") Long docId) {
+        permissions.require("cash", "READ");
+        List<CashVoucher> list = em.createQuery(
+                "select v from CashVoucher v where v.sourceDocId = :id and v.status <> 'cancelled'", CashVoucher.class)
+                .setParameter("id", docId).setMaxResults(1).getResultList();
+        if (list.isEmpty()) {
+            return Map.of();
+        }
+        return detail(list.get(0));
+    }
+
     @POST @Path("/vouchers/from-inventory/{docId}") @Transactional
     public Response fromInventory(@PathParam("docId") Long docId) {
         permissions.require("cash", "CREATE");
@@ -315,7 +327,7 @@ public class CashVoucherResource {
         String type = "import".equals(doc.type) ? "payment" : "receipt";
         CashVoucher v = new CashVoucher();
         v.type = type;
-        v.date = LocalDate.now();
+        v.date = doc.date != null ? doc.date : LocalDate.now();
         v.amount = amount;
         v.amountCurrency = amount;
         v.currency = "VND";

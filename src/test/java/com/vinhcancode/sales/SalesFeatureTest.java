@@ -135,5 +135,66 @@ public class SalesFeatureTest {
             .then()
             .statusCode(200);
     }
+
+    @Test
+    @Order(12)
+    public void testExportSalesAndCashReceiptLink() {
+        String exportDocJson = """
+            {
+              "type": "export",
+              "date": "2026-11-10",
+              "note": "Xuất bán hàng thu tiền ngay",
+              "partner": {"id": "4df1b486-9012-46fc-9adf-416b22cd15cb", "name": "Công ty Cổ phần Xây dựng Coteccons"},
+              "warehouseOut": {"id": "85788637-cbd7-4187-9bc2-a77c3916f031", "name": "Kho Trung Tâm Hà Nội"},
+              "lines": [
+                {
+                  "product": {"id": "a037c556-0854-4c66-a782-d4bd51d5fc8b", "name": "Robot AGV thân thấp (low profile)"},
+                  "qty": 2,
+                  "price": 500000
+                }
+              ]
+            }
+            """;
+
+        Response docResp = given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body(exportDocJson)
+            .when().post("/api/inventory/docs")
+            .then()
+            .statusCode(201)
+            .body("type", equalTo("export"))
+            .extract().response();
+
+        Number docIdNum = docResp.path("id");
+        Long docId = docIdNum.longValue();
+        String docNo = docResp.path("no");
+
+        // Tạo phiếu thu tiền mặt từ phiếu xuất kho
+        Response voucherResp = given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body("{}")
+            .when().post("/api/cash/vouchers/from-inventory/" + docId)
+            .then()
+            .statusCode(201)
+            .body("type", equalTo("receipt"))
+            .body("sourceDocId", equalTo(docId.intValue()))
+            .body("sourceDocNo", equalTo(docNo))
+            .body("amount", equalTo(1000000))
+            .extract().response();
+
+        String voucherCode = voucherResp.path("code");
+
+        // Kiểm tra truy vấn phiếu thu theo phiếu kho nguồn
+        given()
+            .cookie("token", authToken)
+            .when().get("/api/cash/vouchers/by-source/" + docId)
+            .then()
+            .statusCode(200)
+            .body("code", equalTo(voucherCode))
+            .body("sourceDocNo", equalTo(docNo))
+            .body("amount", equalTo(1000000));
+    }
 }
 

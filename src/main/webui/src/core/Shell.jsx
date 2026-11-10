@@ -118,6 +118,20 @@ export default function Shell() {
 
   React.useEffect(() => { setQuery(found); }, [found]);
 
+  React.useEffect(() => {
+    return bus.on('navigate', ({ pluginId, state }) => {
+      if (!pluginId) return;
+      setQuery('');
+      setNav((n) => ({
+        ...n,
+        pluginId,
+        found: '',
+        store: state ? { ...n.store, [pluginId]: { ...(n.store[pluginId] ?? {}), ...state } } : n.store,
+      }));
+      setTab('home');
+    });
+  }, []);
+
   const active = plugins.find((p) => p.id === activeId) ?? plugins[0];
   if (!active) return <p style={{ padding: 24 }}>No plugins.</p>;
 

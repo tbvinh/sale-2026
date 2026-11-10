@@ -52,7 +52,9 @@ const messages = {
     'cash.no': 'Số phiếu', 'cash.date': 'Ngày', 'cash.type': 'Loại', 'cash.partner': 'Đối tượng',
     'cash.account': 'Tài khoản quỹ', 'cash.name': 'Diễn giải', 'cash.amount': 'Số tiền (VND)',
     'cash.currency': 'Ngoại tệ', 'cash.amountCurrency': 'Số ngoại tệ', 'cash.fxRate': 'Tỷ giá',
-    'cash.sourceDoc': 'Phiếu kho nguồn',
+    'cash.sourceDoc': 'Phiếu xuất kho bán hàng',
+    'cash.viewSourceDoc': 'Xem phiếu xuất kho bán hàng',
+    'cash.openSourceDoc': 'Mở phiếu xuất kho bán hàng',
     'cash.new': 'Thêm mới', 'cash.newReceipt': 'Phiếu thu', 'cash.newPayment': 'Phiếu chi',
     'cash.newExchange': 'Đổi tiền tệ', 'cash.edit': 'Sửa phiếu', 'cash.save': 'Lưu', 'cash.cancel': 'Hủy',
     'cash.close': 'Danh sách', 'cash.delete': 'Hủy phiếu', 'cash.saving': 'Đang lưu…',
@@ -97,7 +99,9 @@ const messages = {
     'cash.no': 'Voucher no.', 'cash.date': 'Date', 'cash.type': 'Type', 'cash.partner': 'Partner',
     'cash.account': 'Cash account', 'cash.name': 'Description', 'cash.amount': 'Amount (VND)',
     'cash.currency': 'Currency', 'cash.amountCurrency': 'Foreign amount', 'cash.fxRate': 'Exchange rate',
-    'cash.sourceDoc': 'Source doc',
+    'cash.sourceDoc': 'Sales export doc',
+    'cash.viewSourceDoc': 'View sales export doc',
+    'cash.openSourceDoc': 'Open sales export doc',
     'cash.new': 'New', 'cash.newReceipt': 'Receipt', 'cash.newPayment': 'Payment',
     'cash.newExchange': 'Exchange', 'cash.edit': 'Edit voucher', 'cash.save': 'Save', 'cash.cancel': 'Cancel',
     'cash.close': 'Back to list', 'cash.delete': 'Cancel voucher', 'cash.saving': 'Saving…',
@@ -178,7 +182,7 @@ const search = (q) => cashApi.list({ q, page: 1, pageSize: 20 }).then((res) => (
 
 /* ---------- Danh sách phiếu ---------- */
 
-function VoucherView({ kind, state, setState, can }) {
+function VoucherView({ kind, state, setState, can, bus }) {
   const { t } = useI18n();
   const confirm = useConfirm();
   const accounts = accountsStore.use().items;
@@ -206,7 +210,7 @@ function VoucherView({ kind, state, setState, can }) {
 
   if (state.editing) {
     return <VoucherForm kind={kind} editing={state.editing} state={state} setState={setState}
-      can={can} accounts={accounts} reload={reload} />;
+      can={can} accounts={accounts} reload={reload} bus={bus} />;
   }
 
   const doDelete = async (v) => {
@@ -270,6 +274,7 @@ function VoucherView({ kind, state, setState, can }) {
             <th>{t('cash.date')}</th>
             <th>{t('cash.partner')}</th>
             <th>{t('cash.name')}</th>
+            <th>{t('cash.sourceDoc')}</th>
             {kind === 'exchange' && <th>{t('cash.currency')}</th>}
             <th>{t('cash.account')}</th>
             <th className="num">{t('cash.amount')}</th>
@@ -283,6 +288,18 @@ function VoucherView({ kind, state, setState, can }) {
               <td>{v.date}</td>
               <td>{v.partnerName || v.partnerId || ''}</td>
               <td>{v.name}</td>
+              <td>
+                {v.sourceDocNo ? (
+                  <button
+                    type="button"
+                    className="tb"
+                    style={{ padding: '2px 6px', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    title={t('cash.viewSourceDoc')}
+                    onClick={() => bus?.emit('navigate', { pluginId: 'inventory', state: { q: v.sourceDocNo, filterType: 'all', mode: 'list' } })}>
+                    📦 {v.sourceDocNo}
+                  </button>
+                ) : '—'}
+              </td>
               {kind === 'exchange' && <td>{v.amountCurrency} {v.currency}</td>}
               <td>{accountName(v.accountId)}</td>
               <td className="num">{vnd(v.amount)}</td>
@@ -301,10 +318,10 @@ function VoucherView({ kind, state, setState, can }) {
             </tr>
           ))}
           {!items.length && fetching && (
-            <tr><td colSpan={kind === 'exchange' ? 8 : 7} className="empty">⏳</td></tr>
+            <tr><td colSpan={kind === 'exchange' ? 9 : 8} className="empty">⏳</td></tr>
           )}
           {!items.length && !fetching && (
-            <tr><td colSpan={kind === 'exchange' ? 8 : 7} className="empty">
+            <tr><td colSpan={kind === 'exchange' ? 9 : 8} className="empty">
               {loadError ? t('cash.loadFailed') : (q || state.dateFrom || state.dateTo) ? t('cash.noResult') : t('cash.empty')}
             </td></tr>
           )}
@@ -336,7 +353,7 @@ function VoucherView({ kind, state, setState, can }) {
 /* ---------- Form phiếu thu / chi / đổi tiền tệ ---------- */
 
 
-function VoucherForm({ kind, editing, state, setState, can, accounts, reload }) {
+function VoucherForm({ kind, editing, state, setState, can, accounts, reload, bus }) {
   const { t } = useI18n();
   const confirm = useConfirm();
   const savePerm = editing.id ? can('cash', 'update') : can('cash', 'create');
@@ -440,7 +457,18 @@ function VoucherForm({ kind, editing, state, setState, can, accounts, reload }) 
       {kind === 'exchange' && (
         <p className="muted">{t('cash.exchangeNote').replace('{vnd}', vnd(editing.amount))}</p>
       )}
-      {editing.sourceDocNo && <p className="muted">{t('cash.sourceDoc')}: {editing.sourceDocNo}</p>}
+      {editing.sourceDocNo && (
+        <div style={{ margin: '12px 0', padding: '10px 14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+          <span>📦 <b>{t('cash.sourceDoc')}:</b> <span style={{ color: '#1d4ed8', fontWeight: 600 }}>{editing.sourceDocNo}</span></span>
+          <button
+            type="button"
+            className="tb"
+            style={{ padding: '4px 10px', fontSize: 13, background: '#fff', border: '1px solid #2563eb', color: '#2563eb', fontWeight: 500 }}
+            onClick={() => bus?.emit('navigate', { pluginId: 'inventory', state: { q: editing.sourceDocNo, filterType: 'all', mode: 'list' } })}>
+            🔗 {t('cash.openSourceDoc')}
+          </button>
+        </div>
+      )}
       <p className="muted">{t('cash.prefixHint').replace('{no}', PREFIX[kind])}</p>
       {state.error && <p className="formError" role="alert">{state.error}</p>}
 

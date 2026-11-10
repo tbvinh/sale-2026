@@ -20,6 +20,8 @@ export const cashApi = {
   // Tạo phiếu thu/chi từ phiếu nhập/xuất kho (server tự tính số tiền + đối tác)
   // Body rỗng {} để http gửi Content-Type: application/json (endpoint @Consumes JSON)
   fromInventory: (docId) => http.post(`/cash/vouchers/from-inventory/${docId}`, {}),
+  // Lấy phiếu thu/chi theo phiếu kho nguồn
+  getBySource: (docId) => http.get(`/cash/vouchers/by-source/${docId}`),
 };
 
 export default cashApi;

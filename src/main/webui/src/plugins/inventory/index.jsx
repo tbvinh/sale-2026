@@ -5,6 +5,7 @@ import Denied from '../../core/Denied.jsx';
 import Autocomplete from '../../core/Autocomplete.jsx';
 import { useConfirm } from '../../core/confirm.jsx';
 import { inventoryApi } from '../../api/inventoryApi.js';   // FE-ST8: một nguồn API cho domain kho
+import { cashApi } from '../../api/cashApi.js';
 import { printVoucher } from './voucher.js';
 import { ArrowDownToLine, ArrowRightLeft, BarChart3, BookOpen, FileText, Receipt, Truck } from '../../core/icons.jsx';
 import { useDebounced } from '../../core/useDebounced.js';
@@ -125,6 +126,12 @@ const messages = {
     'inv.moveUp': 'Chuyển lên', 'inv.moveDown': 'Chuyển xuống', 'inv.drag': 'Kéo để đổi thứ tự',
     'inv.edit': 'Sửa', 'inv.deleteRow': 'Xóa', 'inv.confirmDelete': 'Bạn có chắc muốn xóa phiếu "{name}"? Thao tác này không thể hoàn tác.',
     'inv.loadFailed': 'Không tải được danh sách phiếu', 'inv.saveFailed': 'Lưu phiếu thất bại', 'inv.deleteFailed': 'Không xóa được phiếu',
+    'inv.createReceiptOnSave': 'Tạo phiếu thu tiền mặt ngay (Bán hàng thu tiền ngay)',
+    'inv.createReceiptHint': 'Hệ thống sẽ tự động tạo một phiếu thu tiền mặt liên kết trực tiếp với phiếu xuất kho này.',
+    'inv.linkedReceipt': 'Phiếu thu liên kết',
+    'inv.openReceipt': 'Xem phiếu thu',
+    'inv.receiptCreated': 'Đã tạo phiếu thu tiền mặt',
+    'inv.receiptCreateFailed': 'Lưu phiếu xuất thành công nhưng không tạo được phiếu thu',
     'inv.menuImport': 'Các phiếu nhập', 'inv.menuExport': 'Các phiếu xuất', 'inv.menuTransfer': 'Phiếu điều chuyển kho',
     'inv.print': 'In phiếu', 'inv.exportExcel': 'Xuất Excel', 'inv.exportFailed': 'Không xuất được Excel',
     'inv.stt': 'STT',
@@ -176,6 +183,12 @@ const messages = {
     'inv.moveUp': 'Move up', 'inv.moveDown': 'Move down', 'inv.drag': 'Drag to reorder',
     'inv.edit': 'Edit', 'inv.deleteRow': 'Delete', 'inv.confirmDelete': 'Are you sure you want to delete document "{name}"? This cannot be undone.',
     'inv.loadFailed': 'Could not load documents', 'inv.saveFailed': 'Could not save the document', 'inv.deleteFailed': 'Could not delete the document',
+    'inv.createReceiptOnSave': 'Create cash receipt immediately (Instant cash sales)',
+    'inv.createReceiptHint': 'The system will automatically create a cash receipt linked directly to this export doc.',
+    'inv.linkedReceipt': 'Linked cash receipt',
+    'inv.openReceipt': 'View cash receipt',
+    'inv.receiptCreated': 'Cash receipt created successfully',
+    'inv.receiptCreateFailed': 'Export doc saved, but failed to create cash receipt',
     'inv.menuImport': 'Import vouchers', 'inv.menuExport': 'Export vouchers', 'inv.menuTransfer': 'Transfer vouchers',
     'inv.print': 'Print', 'inv.exportExcel': 'Export Excel', 'inv.exportFailed': 'Could not export Excel',
     'inv.stt': 'No.',
@@ -716,7 +729,7 @@ function ListView({ state, setState, docs, total, can, t, error, loading }) {
 
 // Form master-detail: master = loại phiếu + đối tác (autocomplete) + ngày + ghi chú
 // detail = danh sách dòng hàng, mỗi dòng chọn sản phẩm bằng autocomplete (tự điền đơn giá)
-function FormView({ state, setState, can, t }) {
+function FormView({ state, setState, can, t, bus }) {
   const confirm = useConfirm();
   const editing = state.editing;
   const isNew = !editing.id;
@@ -726,6 +739,23 @@ function FormView({ state, setState, can, t }) {
   const showWarehouseIn = editing.type === 'import' || editing.type === 'return' || editing.type === 'transfer';
   const showWarehouseOut = editing.type === 'export' || editing.type === 'transfer';
   const update = (patch) => setState({ editing: { ...editing, ...patch } }, { replace: true });
+
+  const [linkedVoucher, setLinkedVoucher] = useState(null);
+  const [createReceipt, setCreateReceipt] = useState(false);
+
+  useEffect(() => {
+    if (!editing.id) {
+      setLinkedVoucher(null);
+      return;
+    }
+    let active = true;
+    cashApi.getBySource(editing.id)
+      .then((res) => {
+        if (active && res && res.id) setLinkedVoucher(res);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [editing.id]);
 
   // store.add của Danh mục là bất đồng bộ (bên Danh mục cũng `await store.add`), nên phải await
   // để lấy id thật; nếu không thì c.id / c.name là undefined và phiếu lưu ra dữ liệu hỏng.
@@ -779,7 +809,18 @@ function FormView({ state, setState, can, t }) {
     }
     setSaving(true);
     try {
-      await saveDoc(editing);
+      const saved = await saveDoc(editing);
+      const docId = saved?.id || editing.id;
+      if (editing.type === 'export' && createReceipt && docId && !linkedVoucher) {
+        try {
+          const createdVoucher = await cashApi.fromInventory(docId);
+          if (createdVoucher?.code) {
+            alert(t('inv.receiptCreated') + ': ' + createdVoucher.code);
+          }
+        } catch (err) {
+          alert((t('inv.receiptCreateFailed') || 'Không thể tạo phiếu thu') + ': ' + (err?.message ?? err));
+        }
+      }
       // Phiếu mới: bỏ tìm kiếm/lọc/sắp xếp/trang để phiếu vừa tạo hiện ngay ở đầu danh sách.
       // Phiếu cũ: giữ nguyên bộ lọc người dùng đang xem.
       setState(isNew
@@ -897,6 +938,44 @@ function FormView({ state, setState, can, t }) {
         <tfoot><tr><td colSpan={4} style={{ textAlign: 'right' }}><b>{t('inv.grandTotal')}</b></td><td colSpan={2}><b>{vnd(total)}</b></td></tr></tfoot>
       </table>
       <button className="tb" onClick={addLine}>➕ {t('inv.addLine')}</button>
+
+      {editing.type === 'export' && (
+        linkedVoucher ? (
+          <div style={{ margin: '14px 0', padding: '10px 14px', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 18 }}>💵</span>
+              <span>
+                <b>{t('inv.linkedReceipt')}:</b> <span style={{ color: '#047857', fontWeight: 600 }}>{linkedVoucher.code}</span>
+                {' — '}{vnd(linkedVoucher.amount)} ({linkedVoucher.date})
+              </span>
+            </div>
+            <button
+              type="button"
+              className="tb"
+              style={{ background: '#fff', border: '1px solid #059669', color: '#059669', fontWeight: 500 }}
+              onClick={() => bus?.emit('navigate', { pluginId: 'cash', state: { kind: 'receipt', q: linkedVoucher.code } })}>
+              🔗 {t('inv.openReceipt')}
+            </button>
+          </div>
+        ) : (
+          <div style={{ margin: '14px 0', padding: '10px 14px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 600, color: '#0f172a', margin: 0 }}>
+              <input
+                type="checkbox"
+                checked={createReceipt}
+                onChange={(e) => setCreateReceipt(e.target.checked)}
+                style={{ width: 17, height: 17, cursor: 'pointer' }}
+              />
+              <span>{t('inv.createReceiptOnSave')}</span>
+            </label>
+            {createReceipt && (
+              <p style={{ margin: '6px 0 0 25px', fontSize: 13, color: '#475569' }}>
+                {t('inv.createReceiptHint')}
+              </p>
+            )}
+          </div>
+        )
+      )}
 
       <div className="formActions">
         <button className="btn" disabled={!savePerm || saving} onClick={doSave}>{saving ? 'Đang lưu…' : t('inv.save')}</button>
