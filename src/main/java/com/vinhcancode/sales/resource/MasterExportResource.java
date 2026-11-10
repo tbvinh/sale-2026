@@ -2,11 +2,8 @@ package com.vinhcancode.sales.resource;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.vinhcancode.sales.entity.Account;
 import com.vinhcancode.sales.entity.Bank;
-import com.vinhcancode.sales.entity.ClosingEntry;
 import com.vinhcancode.sales.entity.Customer;
-import com.vinhcancode.sales.entity.Department;
 import com.vinhcancode.sales.entity.Employee;
 import com.vinhcancode.sales.entity.MasterEntity;
 import com.vinhcancode.sales.entity.Material;
@@ -63,14 +60,11 @@ public class MasterExportResource {
             entry("customers", new Spec(Customer.class, "Khách hàng", List.of("code", "name", "phone", "address"))),
             entry("banks", new Spec(Bank.class, "Ngân hàng", List.of("code", "name", "branch"))),
             entry("warehouses", new Spec(Warehouse.class, "Kho hàng", List.of("code", "name", "address"))),
-            entry("accounts", new Spec(Account.class, "Tài khoản kế toán", List.of("code", "name"))),
             entry("units", new Spec(Unit.class, "Đơn vị tính", List.of("code", "name"))),
             entry("materialTypes", new Spec(MaterialType.class, "Nhóm vật tư", List.of("name"))),
             entry("materials", new Spec(Material.class, "Vật tư", List.of("code", "name", "unit", "price", "typeId"))),
-            entry("employees", new Spec(Employee.class, "Nhân viên", List.of("code", "name", "phone", "email", "position", "departmentId"))),
-            entry("departments", new Spec(Department.class, "Phòng ban", List.of("code", "name", "manager", "phone"))),
-            entry("partners", new Spec(Partner.class, "Đối tượng", List.of("code", "name", "phone", "address", "kind"))),
-            entry("closingEntries", new Spec(ClosingEntry.class, "Kết chuyển", List.of("code", "name", "fromAccount", "toAccount", "description"))));
+            entry("employees", new Spec(Employee.class, "Nhân viên", List.of("code", "name", "phone", "email", "position"))),
+            entry("partners", new Spec(Partner.class, "Đối tượng", List.of("code", "name", "phone", "address", "kind"))));
 
     @Inject
     protected EntityManager em;

@@ -4,8 +4,8 @@ import { Loading } from '../../core/ui.jsx';
 import Denied from '../../core/Denied.jsx';
 import { useConfirm } from '../../core/confirm.jsx';
 import {
-  suppliersStore, customersStore, warehousesStore, banksStore, materialTypesStore, materialsStore, accountsStore,
-  departmentsStore, employeesStore, unitsStore, partnersStore, closingEntriesStore, vnd,
+  suppliersStore, customersStore, warehousesStore, banksStore, materialTypesStore, materialsStore,
+  employeesStore, unitsStore, partnersStore, vnd,
 } from '../../core/masterdata.js';
 import { useDebounced } from '../../core/useDebounced.js';
 import { downloadFile } from '../../core/http.js';
@@ -14,17 +14,14 @@ import MediaUpload from '../../core/MediaUpload.jsx';
 
 const CATS = [
   { id: 'customers', icon: '🧑‍💼', store: customersStore, path: '/customers' },
-  { id: 'banks', icon: '🏦', store: banksStore, path: '/banks' },
-  { id: 'employees', icon: '👨‍💼', store: employeesStore, path: '/employees' },
-  { id: 'closingEntries', icon: '🔁', store: closingEntriesStore, path: '/closing-entries' },
   { id: 'materials', icon: '📦', store: materialsStore, path: '/materials' },
-  { id: 'accounts', icon: '📒', store: accountsStore, path: '/accounts' },
-  { id: 'units', icon: '📏', store: unitsStore, path: '/units' },
-  { id: 'partners', icon: '🤝', store: partnersStore, path: '/partners' },
-  { id: 'departments', icon: '🏢', store: departmentsStore, path: '/departments' },
-  { id: 'warehouses', icon: '🏭', store: warehousesStore, path: '/warehouses' },
   { id: 'materialTypes', icon: '🏷️', store: materialTypesStore, path: '/material-types' },
+  { id: 'units', icon: '📏', store: unitsStore, path: '/units' },
+  { id: 'warehouses', icon: '🏭', store: warehousesStore, path: '/warehouses' },
   { id: 'suppliers', icon: '🚚', store: suppliersStore, path: '/suppliers' },
+  { id: 'partners', icon: '🤝', store: partnersStore, path: '/partners' },
+  { id: 'employees', icon: '👨‍💼', store: employeesStore, path: '/employees' },
+  { id: 'banks', icon: '🏦', store: banksStore, path: '/banks' },
 ];
 
 const PARTNER_KINDS = [
@@ -105,14 +102,11 @@ const PAGE_SIZES = [5, 10, 20, 50, 100];
 
 // Bộ lọc gửi thẳng lên server dưới dạng query string: ?typeId=..&priceMin=..
 //   kind: 'select' (options tĩnh) | 'number' | 'text'
-function filtersFor(id, t, types, depts) {
+function filtersFor(id, t, types) {
   if (id === 'materials') return [
     { key: 'typeId', kind: 'select', label: t('cat.type'), options: types.map((x) => ({ value: x.id, label: x.name })) },
     { key: 'priceMin', kind: 'number', label: t('cat.priceFrom') },
     { key: 'priceMax', kind: 'number', label: t('cat.priceTo') },
-  ];
-  if (id === 'employees') return [
-    { key: 'departmentId', kind: 'select', label: t('cat.department'), options: depts.map((x) => ({ value: x.id, label: x.name })) },
   ];
   if (id === 'partners') return [
     { key: 'kind', kind: 'select', label: t('cat.kind'), options: PARTNER_KINDS.map((k) => ({ value: k.value, label: t(k.labelKey) })) },
@@ -123,12 +117,7 @@ function filtersFor(id, t, types, depts) {
   ];
   if (id === 'banks') return [{ key: 'branch', kind: 'text', label: t('cat.branch') }];
   if (id === 'warehouses') return [{ key: 'address', kind: 'text', label: t('cat.address') }];
-  if (id === 'accounts') return [
-    // Nhóm tài khoản theo chữ số đầu của số hiệu: 1xx … 9xx
-    { key: 'group', kind: 'select', label: t('cat.accGroup'),
-      options: '123456789'.split('').map((g) => ({ value: g, label: g + 'xx' })) },
-  ];
-  return []; // materialTypes: chỉ tìm kiếm
+  return []; // materialTypes, units, employees: chỉ tìm kiếm
 }
 
 // Trì hoãn giá trị để không gọi API mỗi lần gõ phím (dùng chung: core/useDebounced.js)
@@ -137,7 +126,7 @@ function filtersFor(id, t, types, depts) {
 /* ---------- Cấu hình cột ---------- */
 
 // sortKey: tên field gửi lên server khi sắp xếp (mặc định = key). Riêng "Loại vật tư" sắp theo tên loại.
-function schemaFor(id, t, types, depts) {
+function schemaFor(id, t, types) {
   if (id === 'materials') return [
     { key: 'code', label: t('cat.code') },
     { key: 'name', label: t('cat.name'), display: (it) => (
@@ -167,26 +156,12 @@ function schemaFor(id, t, types, depts) {
   if (id === 'materialTypes') return [{ key: 'name', label: t('cat.name') }];
   if (id === 'banks') return [{ key: 'code', label: t('cat.bankCode') }, { key: 'name', label: t('cat.name') }, { key: 'branch', label: t('cat.branch') }];
   if (id === 'warehouses') return [{ key: 'code', label: t('cat.code') }, { key: 'name', label: t('cat.name') }, { key: 'address', label: t('cat.address') }];
-  if (id === 'accounts') return [{ key: 'code', label: t('cat.accCode') }, { key: 'name', label: t('cat.name') }];
   if (id === 'employees') return [
     { key: 'code', label: t('cat.code') },
     { key: 'name', label: t('cat.name') },
     { key: 'phone', label: t('cat.phone') },
     { key: 'email', label: t('cat.email') },
     { key: 'position', label: t('cat.position') },
-    { key: 'departmentId', label: t('cat.department'),
-      display: (it) => depts.find((x) => x.id === it.departmentId)?.name ?? '',
-      render: (editing, update) => (
-        <select value={editing.departmentId ?? ''} onChange={(e) => update({ departmentId: e.target.value })}>
-          <option value="">--</option>
-          {depts.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
-        </select>) },
-  ];
-  if (id === 'departments') return [
-    { key: 'code', label: t('cat.code') },
-    { key: 'name', label: t('cat.name') },
-    { key: 'manager', label: t('cat.manager') },
-    { key: 'phone', label: t('cat.phone') },
   ];
   if (id === 'units') return [{ key: 'code', label: t('cat.code') }, { key: 'name', label: t('cat.unit') }];
   if (id === 'partners') return [
@@ -201,13 +176,6 @@ function schemaFor(id, t, types, depts) {
           {PARTNER_KINDS.map((k) => <option key={k.value} value={k.value}>{t(k.labelKey)}</option>)}
         </select>) },
   ];
-  if (id === 'closingEntries') return [
-    { key: 'code', label: t('cat.code') },
-    { key: 'name', label: t('cat.name') },
-    { key: 'fromAccount', label: t('cat.fromAccount') },
-    { key: 'toAccount', label: t('cat.toAccount') },
-    { key: 'description', label: t('cat.description') },
-  ];
   return [{ key: 'code', label: t('cat.code') }, { key: 'name', label: t('cat.name') }, { key: 'phone', label: t('cat.phone') }, { key: 'address', label: t('cat.address') }]; // suppliers/customers
 }
 
@@ -221,12 +189,9 @@ const IMPORT_SPEC = {
   materials: { cols: ['code', 'name', 'unit', 'price', 'type'], required: ['name'], sample: ['VT001', 'Bàn phím cơ', 'cái', '700000', 'Phụ kiện'] },
   materialTypes: { cols: ['name'], required: ['name'], sample: ['Phụ kiện'] },
   banks: { cols: ['code', 'name', 'branch'], required: ['code', 'name'], sample: ['VCB', 'Vietcombank', 'Chi nhánh TP.HCM'] },
-  accounts: { cols: ['code', 'name'], required: ['code', 'name'], sample: ['111', 'Tiền mặt'] },
-  employees: { cols: ['code', 'name', 'phone', 'email', 'position'], required: ['name'], sample: ['NV001', 'Nguyễn Văn A', '0901234567', 'a@congty.vn', 'Kế toán viên'] },
-  departments: { cols: ['code', 'name', 'manager', 'phone'], required: ['name'], sample: ['PB001', 'Phòng Kế toán', 'Trần Thị Hoa', '024 3852 1188'] },
+  employees: { cols: ['code', 'name', 'phone', 'email', 'position'], required: ['name'], sample: ['NV001', 'Nguyễn Văn A', '0901234567', 'a@congty.vn', 'Nhân viên kinh doanh'] },
   units: { cols: ['code', 'name'], required: ['name'], sample: ['DVT001', 'Cái'] },
   partners: { cols: ['code', 'name', 'phone', 'address', 'kind'], required: ['name'], sample: ['DT001', 'Công ty ABC', '0901234567', 'TP.HCM', 'customer'] },
-  closingEntries: { cols: ['code', 'name', 'from_account', 'to_account', 'description'], required: ['name'], sample: ['KC001', 'Kết chuyển doanh thu', '511', '911', 'Cuối kỳ'] },
 };
 
 // Chuyển tên cột CSV snake_case sang field của entity (from_account -> fromAccount)
@@ -441,7 +406,6 @@ function Body({ state, setState, can }) {
   const confirm = useConfirm();
   const cat = CATS.find((c) => c.id === state.category);
   const types = materialTypesStore.use().items;   // danh sách nhỏ, tải đủ để đổ dropdown và hiển thị tên nhóm
-  const depts = departmentsStore.use().items;     // dùng cho bộ lọc và form Nhân viên
   const [imp, setImp] = useState({ busy: false, result: null, key: 0 });
   const [exporting, setExporting] = useState(false);
 
@@ -471,8 +435,8 @@ function Body({ state, setState, can }) {
 
   if (loading) return <Loading />;
 
-  const schema = schemaFor(cat.id, t, types, depts);
-  const filterDefs = filtersFor(cat.id, t, types, depts);
+  const schema = schemaFor(cat.id, t, types);
+  const filterDefs = filtersFor(cat.id, t, types);
   const editing = state.editing;
 
   if (editing) {

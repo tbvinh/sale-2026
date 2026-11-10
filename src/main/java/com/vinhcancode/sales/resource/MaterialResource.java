@@ -4,7 +4,6 @@
  */
 package com.vinhcancode.sales.resource;
 
-import com.vinhcancode.sales.entity.Account;
 import com.vinhcancode.sales.entity.Material;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.core.MultivaluedMap;
