@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-APP_IMAGE="${APP_IMAGE:-ketoan-app:latest}"
+APP_IMAGE="${APP_IMAGE:-sale-app:latest}"
 POSTGRES_IMAGE="postgres:16-alpine"
 NGINX_IMAGE="${NGINX_IMAGE:-nginx:1.27-alpine}"
 PACKAGE_NAME="${PACKAGE_NAME:-deployment-package.tar.gz}"
