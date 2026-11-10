@@ -196,5 +196,153 @@ public class SalesFeatureTest {
             .body("sourceDocNo", equalTo(docNo))
             .body("amount", equalTo(1000000));
     }
+
+    @Test
+    @Order(13)
+    public void testInventoryDeletePolicies() {
+        // 1. Kiểm tra GET /settings
+        given()
+            .cookie("token", authToken)
+            .when().get("/api/settings")
+            .then()
+            .statusCode(200)
+            .body("inv_delete_policy", notNullValue());
+
+        // 2. Kiểm tra PUT /settings với giá trị không hợp lệ -> 400
+        given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body("{\"value\": \"invalid_policy\"}")
+            .when().put("/api/settings/inv_delete_policy")
+            .then()
+            .statusCode(400);
+
+        // 3. Thiết lập policy = block
+        given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body("{\"value\": \"block\"}")
+            .when().put("/api/settings/inv_delete_policy")
+            .then()
+            .statusCode(200)
+            .body("value", equalTo("block"));
+
+        // Tạo 1 phiếu xuất kho và phiếu thu liên kết
+        String exportJson = """
+            {
+              "type": "export",
+              "date": "2026-11-10",
+              "warehouseOut": {"id": "85788637-cbd7-4187-9bc2-a77c3916f031", "name": "Kho Thiết bị và Công cụ"},
+              "partner": {"id": "4df1b486-9012-46fc-9adf-416b22cd15cb", "name": "Công ty TNHH Smart Logistics"},
+              "note": "Xuất bán kiểm tra policy",
+              "lines": [
+                {
+                  "product": {"id": "a037c556-0854-4c66-a782-d4bd51d5fc8b", "name": "Robot AGV thân thấp (low profile)"},
+                  "qty": 1,
+                  "price": 200000
+                }
+              ]
+            }
+            """;
+
+        Response docResp1 = given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body(exportJson)
+            .when().post("/api/inventory/docs")
+            .then()
+            .statusCode(201)
+            .extract().response();
+        Long docId1 = ((Number) docResp1.path("id")).longValue();
+
+        Response voucherResp1 = given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body("{}")
+            .when().post("/api/cash/vouchers/from-inventory/" + docId1)
+            .then()
+            .statusCode(201)
+            .extract().response();
+        String voucherId1 = voucherResp1.path("id");
+
+        // 4. Thử xóa phiếu kho khi policy = block -> phải bị chặn (400)
+        given()
+            .cookie("token", authToken)
+            .when().delete("/api/inventory/docs/" + docId1)
+            .then()
+            .statusCode(400)
+            .body("message", containsString("không cho phép xóa"));
+
+        // 5. Đổi policy sang cascade
+        given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body("{\"value\": \"cascade\"}")
+            .when().put("/api/settings/inv_delete_policy")
+            .then()
+            .statusCode(200)
+            .body("value", equalTo("cascade"));
+
+        // Xóa phiếu kho khi policy = cascade -> thành công (204) và hủy phiếu thu liên kết
+        given()
+            .cookie("token", authToken)
+            .when().delete("/api/inventory/docs/" + docId1)
+            .then()
+            .statusCode(204);
+
+        // Kiểm tra phiếu thu liên kết đã chuyển status = 'cancelled'
+        given()
+            .cookie("token", authToken)
+            .when().get("/api/cash/vouchers/" + voucherId1)
+            .then()
+            .statusCode(200)
+            .body("status", equalTo("cancelled"));
+
+        // 6. Đổi policy sang prompt
+        given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body("{\"value\": \"prompt\"}")
+            .when().put("/api/settings/inv_delete_policy")
+            .then()
+            .statusCode(200)
+            .body("value", equalTo("prompt"));
+
+        // Tạo tiếp 1 phiếu xuất kho + phiếu thu
+        Response docResp2 = given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body(exportJson)
+            .when().post("/api/inventory/docs")
+            .then()
+            .statusCode(201)
+            .extract().response();
+        Long docId2 = ((Number) docResp2.path("id")).longValue();
+
+        Response voucherResp2 = given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body("{}")
+            .when().post("/api/cash/vouchers/from-inventory/" + docId2)
+            .then()
+            .statusCode(201)
+            .extract().response();
+        String voucherId2 = voucherResp2.path("id");
+
+        // Xóa với deleteLinked=true -> 204, phiếu thu status = 'cancelled'
+        given()
+            .cookie("token", authToken)
+            .queryParam("deleteLinked", true)
+            .when().delete("/api/inventory/docs/" + docId2)
+            .then()
+            .statusCode(204);
+
+        given()
+            .cookie("token", authToken)
+            .when().get("/api/cash/vouchers/" + voucherId2)
+            .then()
+            .statusCode(200)
+            .body("status", equalTo("cancelled"));
+    }
 }
 

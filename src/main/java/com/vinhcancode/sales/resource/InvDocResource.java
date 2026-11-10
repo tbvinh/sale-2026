@@ -6,8 +6,10 @@ package com.vinhcancode.sales.resource;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vinhcancode.sales.entity.CashVoucher;
 import com.vinhcancode.sales.entity.InvDoc;
 import com.vinhcancode.sales.entity.InvLine;
+import com.vinhcancode.sales.entity.SystemSetting;
 import com.vinhcancode.sales.service.PermissionService;
 import com.vinhcancode.sales.service.XlsxWriter;
 import com.vinhcancode.sales.service.XlsxWriter.Cell;
@@ -296,16 +298,56 @@ public class InvDocResource {
     }
 
     @DELETE @Path("{id}") @Transactional
-    public void delete(@PathParam("id") Long id) {
+    public Response delete(@PathParam("id") Long id, @QueryParam("deleteLinked") Boolean deleteLinked) {
         permissions.require("inventory", "DELETE");
+        InvDoc doc = InvDoc.findById(id);
+        if (doc == null) throw new NotFoundException();
+
+        // Kiểm tra chứng từ thu/chi liên kết còn hiệu lực
+        List<CashVoucher> linked = em.createQuery(
+                "select v from CashVoucher v where v.sourceDocId = :id and v.status <> 'cancelled'", CashVoucher.class)
+                .setParameter("id", id).getResultList();
+
+        if (!linked.isEmpty()) {
+            String policy = getDeletePolicy();
+            if ("block".equalsIgnoreCase(policy)) {
+                String codes = linked.stream().map(v -> v.code).collect(java.util.stream.Collectors.joining(", "));
+                throw MasterResource.bad("Phiếu kho này đang có chứng từ liên kết (" + codes + "). Cấu hình hệ thống không cho phép xóa khi chưa hủy chứng từ liên kết.");
+            }
+            if ("cascade".equalsIgnoreCase(policy) || Boolean.TRUE.equals(deleteLinked)) {
+                em.createQuery("update CashVoucher v set v.status = 'cancelled' where v.sourceDocId = :id")
+                        .setParameter("id", id).executeUpdate();
+            }
+        }
+
         InvDoc.deleteById(id);
+        return Response.noContent().build();
     }
 
     @POST @Path("bulk-delete") @Transactional
-    public void bulkDelete(List<Long> ids) {
+    public void bulkDelete(List<Long> ids, @QueryParam("deleteLinked") Boolean deleteLinked) {
         permissions.require("inventory", "DELETE");
         if (ids == null || ids.isEmpty()) return;    // BE-P6: chặn danh sách rỗng
         if (ids.size() > 500) throw MasterResource.bad("Chỉ xoá tối đa 500 phiếu mỗi lần");   // CS-S14
+
+        String policy = getDeletePolicy();
+        if ("block".equalsIgnoreCase(policy)) {
+            Long count = em.createQuery(
+                    "select count(v) from CashVoucher v where v.sourceDocId in ?1 and v.status <> 'cancelled'", Long.class)
+                    .setParameter(1, ids).getSingleResult();
+            if (count > 0) {
+                throw MasterResource.bad("Một số phiếu kho đang có chứng từ liên kết. Cấu hình hệ thống không cho phép xóa khi chưa hủy chứng từ liên kết.");
+            }
+        } else if ("cascade".equalsIgnoreCase(policy) || Boolean.TRUE.equals(deleteLinked)) {
+            em.createQuery("update CashVoucher v set v.status = 'cancelled' where v.sourceDocId in ?1")
+                    .setParameter(1, ids).executeUpdate();
+        }
+
         InvDoc.delete("id in ?1", ids);
+    }
+
+    private String getDeletePolicy() {
+        SystemSetting s = SystemSetting.find("key", "inv_delete_policy").firstResult();
+        return s != null && s.value != null ? s.value.trim().toLowerCase() : "prompt";
     }
 }

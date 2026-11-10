@@ -16,8 +16,8 @@ export const inventoryApi = {
   create: (doc) => http.post('/inventory/docs', doc),
   importDocs: (docs) => http.post('/inventory/docs/import', docs),
   update: (id, doc) => http.put(`/inventory/docs/${id}`, doc),
-  delete: (id) => http.delete(`/inventory/docs/${id}`),
-  bulkDelete: (ids) => http.post('/inventory/docs/bulk-delete', ids),
+  delete: (id, deleteLinked) => http.delete(`/inventory/docs/${id}${deleteLinked != null ? `?deleteLinked=${deleteLinked}` : ''}`),
+  bulkDelete: (ids, deleteLinked) => http.post(`/inventory/docs/bulk-delete${deleteLinked != null ? `?deleteLinked=${deleteLinked}` : ''}`, ids),
   exportExcel: (id, no) => downloadFile(`/inventory/docs/${id}/export-excel`, `phieu-${no || id}.xlsx`),
 
   // Báo cáo kho (4-7) — cùng hợp đồng { items, totals, ... }

@@ -6,6 +6,7 @@ import Autocomplete from '../../core/Autocomplete.jsx';
 import { useConfirm } from '../../core/confirm.jsx';
 import { inventoryApi } from '../../api/inventoryApi.js';   // FE-ST8: một nguồn API cho domain kho
 import { cashApi } from '../../api/cashApi.js';
+import { settingsApi } from '../../api/settingsApi.js';
 import { printVoucher } from './voucher.js';
 import { ArrowDownToLine, ArrowRightLeft, BarChart3, BookOpen, FileText, Receipt, Truck } from '../../core/icons.jsx';
 import { useDebounced } from '../../core/useDebounced.js';
@@ -76,14 +77,85 @@ async function saveDoc(doc, asImport = false) {
   return saved;
 }
 
-async function removeDoc(id) {
-  await inventoryApi.delete(id);
+async function removeDoc(id, deleteLinked) {
+  await inventoryApi.delete(id, deleteLinked);
   await load();
 }
 
-async function removeDocs(ids) {
-  await inventoryApi.bulkDelete(ids);
+async function removeDocs(ids, deleteLinked) {
+  await inventoryApi.bulkDelete(ids, deleteLinked);
   await load();
+}
+
+async function requestDeleteDoc({ doc, t, confirm, onOpenPromptModal, onSuccess }) {
+  if (doc.type !== 'import' && doc.type !== 'export' && doc.type !== 'return') {
+    if (!(await confirm(t('inv.confirmDelete').replace('{name}', doc.no)))) return;
+    try {
+      await removeDoc(doc.id, false);
+      onSuccess?.();
+    } catch (e) {
+      alert((t('inv.deleteFailed') || 'Xóa thất bại') + ': ' + (e?.message ?? e));
+    }
+    return;
+  }
+
+  let linkedVoucher = null;
+  let policy = 'prompt';
+  try {
+    const [linkedRes, policyRes] = await Promise.all([
+      cashApi.getBySource(doc.id).catch(() => null),
+      settingsApi.get('inv_delete_policy').catch(() => null),
+    ]);
+    if (linkedRes && linkedRes.id && linkedRes.status !== 'cancelled') {
+      linkedVoucher = linkedRes;
+    }
+    if (policyRes?.value) {
+      policy = policyRes.value;
+    }
+  } catch (err) {
+    console.error(err);
+  }
+
+  if (!linkedVoucher) {
+    if (!(await confirm(t('inv.confirmDelete').replace('{name}', doc.no)))) return;
+    try {
+      await removeDoc(doc.id, false);
+      onSuccess?.();
+    } catch (e) {
+      alert((t('inv.deleteFailed') || 'Xóa thất bại') + ': ' + (e?.message ?? e));
+    }
+    return;
+  }
+
+  const voucherTypeName = linkedVoucher.type === 'receipt' ? 'Phiếu thu' : 'Phiếu chi';
+  const voucherInfo = `${voucherTypeName} ${linkedVoucher.no || ''} (${vnd(linkedVoucher.amount || 0)})`;
+
+  if (policy === 'block') {
+    alert(t('inv.deleteBlockedNotice').replace('{name}', doc.no).replace('{linked}', voucherInfo));
+    return;
+  }
+
+  if (policy === 'cascade') {
+    const ok = await confirm(
+      t('inv.confirmDeleteCascade').replace('{name}', doc.no).replace('{linked}', voucherInfo)
+    );
+    if (!ok) return;
+    try {
+      await removeDoc(doc.id, true);
+      onSuccess?.();
+    } catch (e) {
+      alert((t('inv.deleteFailed') || 'Xóa thất bại') + ': ' + (e?.message ?? e));
+    }
+    return;
+  }
+
+  // policy === 'prompt'
+  onOpenPromptModal({
+    doc,
+    voucher: linkedVoucher,
+    voucherInfo,
+    onSuccess,
+  });
 }
 
 // Global Search: gọi server (không phụ thuộc trang đang xem). Lỗi ⇒ trả [] để không làm vỡ khung tìm kiếm chung.
@@ -132,6 +204,13 @@ const messages = {
     'inv.openReceipt': 'Xem phiếu thu',
     'inv.receiptCreated': 'Đã tạo phiếu thu tiền mặt',
     'inv.receiptCreateFailed': 'Lưu phiếu xuất thành công nhưng không tạo được phiếu thu',
+    'inv.deleteBlockedNotice': 'Phiếu kho "{name}" đang có chứng từ liên kết: {linked}.\n\nHệ thống đang thiết lập CHẶN xóa khi còn chứng từ liên kết. Vui lòng hủy chứng từ liên kết trước khi xóa phiếu kho.',
+    'inv.confirmDeleteCascade': 'Phiếu kho "{name}" đang có chứng từ liên kết: {linked}.\n\nHệ thống đang thiết lập TỰ ĐỘNG HỦY chứng từ liên kết khi xóa. Bạn có chắc chắn muốn xóa không?',
+    'inv.deletePromptTitle': 'Xác nhận xóa phiếu kho có chứng từ liên kết',
+    'inv.deleteBothAction': 'Hủy cả phiếu kho và chứng từ liên kết',
+    'inv.deleteInvOnlyAction': 'Chỉ xóa phiếu kho (giữ lại chứng từ liên kết)',
+    'inv.bulkDeleteCascadeHint': 'Lưu ý: Các chứng từ thu/chi liên kết sẽ được tự động hủy theo chính sách hệ thống.',
+    'inv.bulkDeletePromptHint': 'Hệ thống đang cấu hình hỏi khi xóa. Bạn có muốn đồng thời HỦY các chứng từ thu/chi liên kết không?\n- Chọn [Đồng ý] để hủy luôn chứng từ thu/chi liên kết.\n- Chọn [Hủy] để dừng thao tác.',
     'inv.menuImport': 'Các phiếu nhập', 'inv.menuExport': 'Các phiếu xuất', 'inv.menuTransfer': 'Phiếu điều chuyển kho',
     'inv.print': 'In phiếu', 'inv.exportExcel': 'Xuất Excel', 'inv.exportFailed': 'Không xuất được Excel',
     'inv.stt': 'STT',
@@ -189,6 +268,13 @@ const messages = {
     'inv.openReceipt': 'View cash receipt',
     'inv.receiptCreated': 'Cash receipt created successfully',
     'inv.receiptCreateFailed': 'Export doc saved, but failed to create cash receipt',
+    'inv.deleteBlockedNotice': 'Document "{name}" has linked cash voucher: {linked}.\n\nSystem policy is set to BLOCK deletion while linked vouchers exist. Please cancel the linked voucher first.',
+    'inv.confirmDeleteCascade': 'Document "{name}" has linked cash voucher: {linked}.\n\nSystem policy is set to CASCADE cancel linked vouchers. Are you sure you want to delete?',
+    'inv.deletePromptTitle': 'Delete Document with Linked Voucher',
+    'inv.deleteBothAction': 'Cancel both document & linked voucher',
+    'inv.deleteInvOnlyAction': 'Delete only document (keep linked voucher)',
+    'inv.bulkDeleteCascadeHint': 'Note: Linked cash vouchers will be automatically cancelled according to system policy.',
+    'inv.bulkDeletePromptHint': 'System policy is set to prompt. Do you want to ALSO cancel linked cash vouchers?\n- Choose [Yes] to cancel linked cash vouchers as well.\n- Choose [No] to stop.',
     'inv.menuImport': 'Import vouchers', 'inv.menuExport': 'Export vouchers', 'inv.menuTransfer': 'Transfer vouchers',
     'inv.print': 'Print', 'inv.exportExcel': 'Export Excel', 'inv.exportFailed': 'Could not export Excel',
     'inv.stt': 'No.',
@@ -536,7 +622,7 @@ function Pager({ page, totalPages, pageSize, setState, t }) {
   );
 }
 
-function ListView({ state, setState, docs, total, can, t, error, loading }) {
+function ListView({ state, setState, docs, total, can, t, error, loading, onDeletePrompt }) {
   const confirm = useConfirm();
   const [imp, setImp] = useState({ busy: false, result: null, key: 0 });
   const q = state.q ?? '';
@@ -571,13 +657,14 @@ function ListView({ state, setState, docs, total, can, t, error, loading }) {
     setState({ sort: next, page: 1 }, { replace: true });
   };
 
-  const onDelete = async (d) => {
-    if (!(await confirm(t('inv.confirmDelete').replace('{name}', d.no)))) return;
-    try {
-      await removeDoc(d.id);
-    } catch (e) {
-      alert((t('inv.deleteFailed') || 'Xóa thất bại') + ': ' + (e?.message ?? e));
-    }
+  const onDelete = (d) => {
+    requestDeleteDoc({
+      doc: d,
+      t,
+      confirm,
+      onOpenPromptModal: onDeletePrompt,
+      onSuccess: () => {},
+    });
   };
 
   // ----- Chọn nhiều + xóa hàng loạt -----
@@ -595,12 +682,44 @@ function ListView({ state, setState, docs, total, can, t, error, loading }) {
   };
   const onBulkDelete = async () => {
     if (!selected.length) return;
-    if (!(await confirm(t('inv.confirmBulkDelete').replace('{n}', selected.length)))) return;
+    let policy = 'prompt';
     try {
-      await removeDocs(selected.map((d) => d.id));
-      setSel([]);
-    } catch (e) {
-      alert((t('inv.deleteFailed') || 'Xóa thất bại') + ': ' + (e?.message ?? e));
+      const p = await settingsApi.get('inv_delete_policy');
+      if (p?.value) policy = p.value;
+    } catch {}
+
+    if (policy === 'block') {
+      if (!(await confirm(t('inv.confirmBulkDelete').replace('{n}', selected.length)))) return;
+      try {
+        await removeDocs(selected.map((d) => d.id), false);
+        setSel([]);
+      } catch (e) {
+        alert((t('inv.deleteFailed') || 'Xóa thất bại') + ': ' + (e?.message ?? e));
+      }
+    } else if (policy === 'cascade') {
+      const ok = await confirm(
+        t('inv.confirmBulkDelete').replace('{n}', selected.length) + '\n\n' +
+        (t('inv.bulkDeleteCascadeHint') || 'Lưu ý: Các chứng từ thu/chi liên kết sẽ được tự động hủy theo chính sách hệ thống.')
+      );
+      if (!ok) return;
+      try {
+        await removeDocs(selected.map((d) => d.id), true);
+        setSel([]);
+      } catch (e) {
+        alert((t('inv.deleteFailed') || 'Xóa thất bại') + ': ' + (e?.message ?? e));
+      }
+    } else {
+      const ok = await confirm(
+        t('inv.confirmBulkDelete').replace('{n}', selected.length) + '\n\n' +
+        (t('inv.bulkDeletePromptHint') || 'Hệ thống đang cấu hình hỏi khi xóa. Bạn có muốn đồng thời HỦY các chứng từ thu/chi liên kết không?\n- Chọn [Đồng ý] để hủy luôn chứng từ thu/chi liên kết.\n- Chọn [Hủy] để dừng thao tác.')
+      );
+      if (!ok) return;
+      try {
+        await removeDocs(selected.map((d) => d.id), true);
+        setSel([]);
+      } catch (e) {
+        alert((t('inv.deleteFailed') || 'Xóa thất bại') + ': ' + (e?.message ?? e));
+      }
     }
   };
 
@@ -756,7 +875,7 @@ function ListView({ state, setState, docs, total, can, t, error, loading }) {
 
 // Form master-detail: master = loại phiếu + đối tác (autocomplete) + ngày + ghi chú
 // detail = danh sách dòng hàng, mỗi dòng chọn sản phẩm bằng autocomplete (tự điền đơn giá)
-function FormView({ state, setState, can, t, bus }) {
+function FormView({ state, setState, can, t, bus, onDeletePrompt }) {
   const confirm = useConfirm();
   const editing = state.editing;
   const isNew = !editing.id;
@@ -859,14 +978,14 @@ function FormView({ state, setState, can, t, bus }) {
       setSaving(false);
     }
   };
-  const doDelete = async () => {
-    if (!(await confirm(t('inv.confirmDelete').replace('{name}', editing.no)))) return;
-    try {
-      await removeDoc(editing.id);
-      setState({ mode: 'list', editing: null });
-    } catch (e) {
-      alert((t('inv.deleteFailed') || 'Xóa phiếu thất bại') + ': ' + (e?.message ?? e));
-    }
+  const doDelete = () => {
+    requestDeleteDoc({
+      doc: editing,
+      t,
+      confirm,
+      onOpenPromptModal: onDeletePrompt,
+      onSuccess: () => setState({ mode: 'list', editing: null }),
+    });
   };
 
   return (
@@ -1303,16 +1422,80 @@ function Body(props) {
   const { state } = props;
   const { t } = useI18n();
   const { docs, total, loading, error } = useDocs();
+  const [deletePrompt, setDeletePrompt] = useState(null);
   // KHÔNG return <Loading /> ở đây: unmount ListView sẽ chạy lại effect tải dữ liệu khi mount
   // (mount → load → unmount → mount → load …) ⇒ vòng lặp request vô hạn khi kết quả rỗng.
   // Spinner được hiển thị bên trong ListView để component luôn được giữ mount.
   return (<>
     <style>{CSS}</style>
     {state.mode === 'form' && state.editing
-      ? <FormView {...props} t={t} />
+      ? <FormView {...props} onDeletePrompt={setDeletePrompt} t={t} />
       : state.report
         ? <ReportView state={state} setState={props.setState} t={t} />
-        : <ListView {...props} docs={docs} total={total} error={error} loading={loading} t={t} />}
+        : <ListView {...props} onDeletePrompt={setDeletePrompt} docs={docs} total={total} error={error} loading={loading} t={t} />}
+
+    {deletePrompt && (
+      <div className="confirm-backdrop" onMouseDown={() => setDeletePrompt(null)}>
+        <div className="confirm-box" style={{ width: 480 }} role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+          <h3 style={{ fontSize: 16, color: '#dc2626', marginBottom: 12 }}>🗑 {t('inv.deletePromptTitle')}</h3>
+          <p style={{ margin: '0 0 10px', fontSize: 14 }}>
+            Phiếu kho <strong>{deletePrompt.doc.no}</strong> đang có chứng từ liên kết:
+          </p>
+          <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: 6, marginBottom: 16, border: '1px solid #e2e8f0', fontSize: 13, color: '#0f172a' }}>
+            <strong>{deletePrompt.voucherInfo}</strong>
+          </div>
+          <p style={{ margin: '0 0 16px', fontSize: 13, color: '#64748b', lineHeight: 1.5 }}>
+            Hệ thống đang cấu hình hỏi người dùng khi xóa phiếu kho có chứng từ liên kết. Vui lòng chọn thao tác xử lý:
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <button
+              type="button"
+              className="btn danger"
+              style={{ width: '100%', textAlign: 'center', padding: '9px 14px', fontSize: 13, fontWeight: 600 }}
+              onClick={async () => {
+                const doc = deletePrompt.doc;
+                const cb = deletePrompt.onSuccess;
+                setDeletePrompt(null);
+                try {
+                  await removeDoc(doc.id, true);
+                  cb?.();
+                } catch (e) {
+                  alert((t('inv.deleteFailed') || 'Xóa thất bại') + ': ' + (e?.message ?? e));
+                }
+              }}
+            >
+              🗑 {t('inv.deleteBothAction')}
+            </button>
+            <button
+              type="button"
+              className="tb"
+              style={{ width: '100%', textAlign: 'center', padding: '9px 14px', fontSize: 13, border: '1px solid #cbd5e1', background: '#fff' }}
+              onClick={async () => {
+                const doc = deletePrompt.doc;
+                const cb = deletePrompt.onSuccess;
+                setDeletePrompt(null);
+                try {
+                  await removeDoc(doc.id, false);
+                  cb?.();
+                } catch (e) {
+                  alert((t('inv.deleteFailed') || 'Xóa thất bại') + ': ' + (e?.message ?? e));
+                }
+              }}
+            >
+              📄 {t('inv.deleteInvOnlyAction')}
+            </button>
+            <button
+              type="button"
+              className="tb"
+              style={{ width: '100%', textAlign: 'center', padding: '6px 14px', fontSize: 13, color: '#64748b' }}
+              onClick={() => setDeletePrompt(null)}
+            >
+              {t('admin.cancel') || 'Đóng'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
   </>);
 }
 

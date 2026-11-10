@@ -9,6 +9,7 @@ import { PLUGIN_IDS, ACTIONS } from '../../core/permissions.js';
 import { getCompanyId, setActiveCompany, setCompanies } from '../../core/tenant.js';
 import { resetAllStores } from '../../core/masterdata.js';
 import { adminApi } from '../../api/adminApi.js';
+import { settingsApi } from '../../api/settingsApi.js';
 
 const MODULE_KEYS = {
   inventory: 'inv.title', catalog: 'cat.title', opening: 'open.title', cash: 'cash.title',
@@ -107,6 +108,18 @@ const messages = {
     'admin.ownerPassword': 'Mật khẩu khởi tạo Owner',
     'admin.companyUsersSection': 'Người dùng được phép quản trị công ty này',
     'admin.ownerBadge': 'Owner',
+    'admin.settingsTab': 'Thiết lập bán hàng',
+    'admin.invDeletePolicy': 'Chính sách xóa phiếu kho khi có chứng từ thu/chi liên kết',
+    'admin.invDeletePolicyHint': 'Quy định hành vi của hệ thống khi người dùng xóa phiếu nhập kho, xuất kho hoặc trả hàng đang có phiếu thu / phiếu chi liên kết.',
+    'admin.policyPrompt': 'Hỏi người dùng khi xóa (Mặc định)',
+    'admin.policyPromptDesc': 'Hiển thị hộp thoại hỏi người dùng muốn hủy cả chứng từ thu/chi liên kết hay chỉ xóa phiếu kho.',
+    'admin.policyCascade': 'Tự động hủy chứng từ liên kết (Cascade)',
+    'admin.policyCascadeDesc': 'Khi xóa phiếu kho, tự động đánh dấu hủy (cancelled) các phiếu thu/chi liên kết.',
+    'admin.policyBlock': 'Chặn không cho xóa (Block)',
+    'admin.policyBlockDesc': 'Không cho phép xóa phiếu kho nếu còn chứng từ thu/chi liên kết chưa bị hủy. Người dùng phải xử lý chứng từ thu/chi trước.',
+    'admin.settingsSaved': 'Đã lưu thiết lập hệ thống.',
+    'admin.saveSettings': 'Lưu thiết lập',
+    'admin.savingSettings': 'Đang lưu…',
   },
   en: {
     'admin.title': 'Administration', 'admin.usersTab': 'Users', 'admin.rolesTab': 'Roles & permissions',
@@ -195,6 +208,18 @@ const messages = {
     'admin.ownerPassword': 'Initial Owner password',
     'admin.companyUsersSection': 'Users allowed to manage this company',
     'admin.ownerBadge': 'Owner',
+    'admin.settingsTab': 'Sales Settings',
+    'admin.invDeletePolicy': 'Policy for deleting inventory docs with linked cash vouchers',
+    'admin.invDeletePolicyHint': 'Defines system behavior when deleting an import/export/return voucher that has linked cash receipt/payment vouchers.',
+    'admin.policyPrompt': 'Prompt user on delete (Default)',
+    'admin.policyPromptDesc': 'Display dialog asking whether to also cancel linked cash vouchers or only delete inventory voucher.',
+    'admin.policyCascade': 'Cascade cancel linked vouchers',
+    'admin.policyCascadeDesc': 'Automatically cancel (mark as cancelled) linked cash vouchers when deleting inventory voucher.',
+    'admin.policyBlock': 'Block deletion',
+    'admin.policyBlockDesc': 'Prevent deleting inventory voucher if active linked cash vouchers exist. User must cancel cash voucher first.',
+    'admin.settingsSaved': 'System settings saved.',
+    'admin.saveSettings': 'Save settings',
+    'admin.savingSettings': 'Saving…',
   },
 };
 
@@ -1885,6 +1910,126 @@ function OwnerCompanyBackup() {
   );
 }
 
+function SystemSettings({ can }) {
+  const { t } = useI18n();
+  const [policy, setPolicy] = useState('prompt');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await settingsApi.get('inv_delete_policy');
+        if (active && res?.value) setPolicy(res.value);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+
+  const onSave = async () => {
+    setSaving(true);
+    setMsg(null);
+    try {
+      await settingsApi.update('inv_delete_policy', policy);
+      setMsg({ type: 'ok', text: t('admin.settingsSaved') });
+    } catch (e) {
+      setMsg({ type: 'err', text: e?.message ?? String(e) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <Loading />;
+
+  return (
+    <div style={{ maxWidth: 800, marginTop: 16 }}>
+      <div className="card" style={{ padding: 24, background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+        <h3 style={{ marginTop: 0, marginBottom: 8, fontSize: 16, color: '#1e293b' }}>⚙️ {t('admin.invDeletePolicy')}</h3>
+        <p style={{ color: '#64748b', fontSize: 13, marginBottom: 20 }}>{t('admin.invDeletePolicyHint')}</p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', padding: 10, borderRadius: 6, border: policy === 'prompt' ? '1px solid #3b82f6' : '1px solid #e2e8f0', background: policy === 'prompt' ? '#eff6ff' : 'transparent' }}>
+            <input
+              type="radio"
+              name="inv_delete_policy"
+              value="prompt"
+              checked={policy === 'prompt'}
+              onChange={() => setPolicy('prompt')}
+              style={{ marginTop: 3 }}
+            />
+            <div>
+              <strong style={{ color: '#0f172a' }}>{t('admin.policyPrompt')}</strong>
+              <div style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>{t('admin.policyPromptDesc')}</div>
+            </div>
+          </label>
+
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', padding: 10, borderRadius: 6, border: policy === 'cascade' ? '1px solid #3b82f6' : '1px solid #e2e8f0', background: policy === 'cascade' ? '#eff6ff' : 'transparent' }}>
+            <input
+              type="radio"
+              name="inv_delete_policy"
+              value="cascade"
+              checked={policy === 'cascade'}
+              onChange={() => setPolicy('cascade')}
+              style={{ marginTop: 3 }}
+            />
+            <div>
+              <strong style={{ color: '#0f172a' }}>{t('admin.policyCascade')}</strong>
+              <div style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>{t('admin.policyCascadeDesc')}</div>
+            </div>
+          </label>
+
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', padding: 10, borderRadius: 6, border: policy === 'block' ? '1px solid #3b82f6' : '1px solid #e2e8f0', background: policy === 'block' ? '#eff6ff' : 'transparent' }}>
+            <input
+              type="radio"
+              name="inv_delete_policy"
+              value="block"
+              checked={policy === 'block'}
+              onChange={() => setPolicy('block')}
+              style={{ marginTop: 3 }}
+            />
+            <div>
+              <strong style={{ color: '#0f172a' }}>{t('admin.policyBlock')}</strong>
+              <div style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>{t('admin.policyBlockDesc')}</div>
+            </div>
+          </label>
+        </div>
+
+        {msg && (
+          <div style={{
+            marginTop: 16,
+            padding: '10px 14px',
+            borderRadius: 6,
+            background: msg.type === 'ok' ? '#dcfce7' : '#fee2e2',
+            color: msg.type === 'ok' ? '#166534' : '#991b1b',
+            fontSize: 13,
+            fontWeight: 500
+          }}>
+            {msg.text}
+          </div>
+        )}
+
+        <div style={{ marginTop: 20 }}>
+          <button
+            type="button"
+            className="btn"
+            style={{ padding: '8px 20px', fontWeight: 600 }}
+            disabled={saving}
+            onClick={onSave}
+          >
+            {saving ? t('admin.savingSettings') : t('admin.saveSettings')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Body({ can }) {
   const { t } = useI18n();
   const { user } = useAuth();
@@ -1908,9 +2053,14 @@ function Body({ can }) {
           <button type="button" className={tab === 'backup' ? 'on' : ''} onClick={() => setTab('backup')}>
             💾 Sao lưu & Phục hồi công ty
           </button>
+          <button type="button" className={tab === 'settings' ? 'on' : ''} onClick={() => setTab('settings')}>
+            ⚙️ {t('admin.settingsTab')}
+          </button>
         </div>
         {tab === 'backup' ? (
           <OwnerCompanyBackup />
+        ) : tab === 'settings' ? (
+          <SystemSettings can={can} />
         ) : (
           <Users can={can} isSystemAdmin={false} currentUser={user} onOpenBackup={() => setTab('backup')} />
         )}
@@ -1934,6 +2084,9 @@ function Body({ can }) {
         <button type="button" className={tab === 'truncate' ? 'on' : ''} onClick={() => setTab('truncate')}>
           🧹 {t('admin.truncateTab')}
         </button>
+        <button type="button" className={tab === 'settings' ? 'on' : ''} onClick={() => setTab('settings')}>
+          ⚙️ {t('admin.settingsTab')}
+        </button>
       </div>
       {tab === 'users' ? (
         <Users can={can} isSystemAdmin={true} currentUser={user} />
@@ -1941,8 +2094,10 @@ function Body({ can }) {
         <Roles can={can} />
       ) : tab === 'companies' ? (
         <Companies can={can} onOpenTruncate={openTruncateFor} />
-      ) : (
+      ) : tab === 'truncate' ? (
         <VoucherTruncate can={can} initialCompanyId={truncateCoId} />
+      ) : (
+        <SystemSettings can={can} />
       )}
     </div>
   );
