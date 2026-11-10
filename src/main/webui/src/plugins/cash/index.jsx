@@ -222,13 +222,20 @@ function VoucherView({ kind, state, setState, can, bus }) {
   return (
     <div className="pad">
       <style>{CSS}</style>
-      <div className="ghead">
+      <div className="ghead" style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
         <h2>{t('cash.' + kind)}</h2>
-        {can('cash', 'create') && (
-          <button className="tb" onClick={() => setState({ editing: blankVoucher(kind), error: null, page: 1 })}>
-            ➕ {t('cash.new')}
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {can('cash', 'create') && (
+            <>
+              <button type="button" className="btn" onClick={() => setState({ kind: 'receipt', editing: blankVoucher('receipt'), error: null, page: 1 })}>
+                ➕ {t('cash.newReceipt')}
+              </button>
+              <button type="button" className="btn" style={{ background: '#0284c7' }} onClick={() => setState({ kind: 'payment', editing: blankVoucher('payment'), error: null, page: 1 })}>
+                ➕ {t('cash.newPayment')}
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="cattools">
@@ -303,16 +310,16 @@ function VoucherView({ kind, state, setState, can, bus }) {
               {kind === 'exchange' && <td>{v.amountCurrency} {v.currency}</td>}
               <td>{accountName(v.accountId)}</td>
               <td className="num">{vnd(v.amount)}</td>
-              <td className="acts">
-                <button type="button" className="xbtn" title={t('cash.print')} aria-label={t('cash.print')}
-                  onClick={() => printCashVoucher(v, t)}>🖨</button>
+              <td className="acts" style={{ whiteSpace: 'nowrap' }}>
+                <button type="button" className="tb" style={{ padding: '3px 8px', fontSize: 13, marginRight: 4 }} title={t('cash.print')}
+                  onClick={() => printCashVoucher(v, t)}>🖨 {t('cash.print')}</button>
                 {can('cash', 'update') && (
-                  <button type="button" className="xbtn" title={t('cash.edit')} aria-label={t('cash.edit')}
-                    onClick={() => setState({ editing: { ...v }, error: null })}>✏️</button>
+                  <button type="button" className="tb" style={{ padding: '3px 8px', fontSize: 13, marginRight: 4 }} title={t('cash.edit')}
+                    onClick={() => setState({ editing: { ...v }, error: null })}>✏️ {t('cash.edit')}</button>
                 )}
                 {can('cash', 'delete') && (
-                  <button type="button" className="xbtn" title={t('cash.delete')} aria-label={t('cash.delete')}
-                    onClick={() => doDelete(v)}>🗑</button>
+                  <button type="button" className="tb" style={{ padding: '3px 8px', fontSize: 13, color: '#dc2626' }} title={t('cash.delete')}
+                    onClick={() => doDelete(v)}>🗑 {t('cash.delete')}</button>
                 )}
               </td>
             </tr>
@@ -405,9 +412,7 @@ function VoucherForm({ kind, editing, state, setState, can, accounts, reload, bu
       <div className="ghead">
         <h2>{editing.id ? t('cash.edit') : t('cash.new')} — {t('cash.' + kind)}</h2>
         <div>
-          {editing.id && (
-            <button className="tb" onClick={() => printCashVoucher(editing, t)}>🖨 {t('cash.print')}</button>
-          )}{' '}
+          <button className="tb" onClick={() => printCashVoucher(editing, t)}>🖨 {t('cash.print')}</button>{' '}
           <button className="tb" onClick={() => setState({ editing: null, error: null })}>← {t('cash.close')}</button>
         </div>
       </div>
@@ -476,12 +481,13 @@ function VoucherForm({ kind, editing, state, setState, can, accounts, reload, bu
         <button className="btn" disabled={!savePerm || state.saving} onClick={save}>
           {state.saving ? t('cash.saving') : t('cash.save')}
         </button>
+        <button type="button" className="tb" onClick={() => printCashVoucher(editing, t)}>🖨 {t('cash.print')}</button>
+        {editing.id && can('cash', 'delete') && (
+          <button type="button" className="tb" style={{ color: '#dc2626' }} disabled={state.saving} onClick={doDelete}>🗑 {t('cash.delete')}</button>
+        )}
         <button className="tb" disabled={state.saving} onClick={() => setState({ editing: null, error: null })}>
           {t('cash.cancel')}
         </button>
-        {editing.id && can('cash', 'delete') && (
-          <button className="tb" disabled={state.saving} onClick={doDelete}>🗑 {t('cash.delete')}</button>
-        )}
       </div>
     </div>
   );

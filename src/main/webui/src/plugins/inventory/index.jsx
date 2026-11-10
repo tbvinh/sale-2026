@@ -664,6 +664,33 @@ function ListView({ state, setState, docs, total, can, t, error, loading }) {
         </p>
       )}
 
+      <div className="ghead" style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+        <h2>{state.filterType && state.filterType !== 'all' ? t('inv.menu' + state.filterType[0].toUpperCase() + state.filterType.slice(1)) : t('inv.title')}</h2>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {can('inventory', 'create') && (
+            <>
+              <button type="button" className="btn" onClick={() => setState({ mode: 'form', editing: blankDoc('export') })}>
+                ➕ {t('inv.newExport')}
+              </button>
+              <button type="button" className="btn" style={{ background: '#0284c7' }} onClick={() => setState({ mode: 'form', editing: blankDoc('import') })}>
+                ➕ {t('inv.newImport')}
+              </button>
+              <button type="button" className="tb" onClick={() => setState({ mode: 'form', editing: blankDoc('transfer') })}>
+                ➕ {t('inv.newTransfer')}
+              </button>
+              <button type="button" className="tb" onClick={() => setState({ mode: 'form', editing: blankDoc('return') })}>
+                ➕ {t('inv.newReturn')}
+              </button>
+            </>
+          )}
+          {can('inventory', 'import') && (
+            <button type="button" className="tb" onClick={() => setState({ importing: !state.importing })}>
+              📂 {t('inv.importFile')}
+            </button>
+          )}
+        </div>
+      </div>
+
       <Toolbar state={state} setState={setState} t={t} countLabel={countLabel} />
 
       {loading && !items.length && <Loading />}
@@ -707,11 +734,11 @@ function ListView({ state, setState, docs, total, can, t, error, loading }) {
                 </td>
               )}
               <td>{d.no}</td><td>{t('inv.' + d.type)}</td><td>{d.partner?.name}</td><td>{d.date}</td><td>{vnd(lineTotal(d.lines))}</td>
-              <td>
-                <button className="xbtn" title={t('inv.print')} aria-label={t('inv.print')} onClick={() => printVoucher(d, t)}>🖨</button>
-                <button className="xbtn" title={t('inv.edit')} aria-label={t('inv.edit')} onClick={() => setState({ mode: 'form', editing: d })}>✏️</button>
+              <td className="acts" style={{ whiteSpace: 'nowrap' }}>
+                <button type="button" className="tb" style={{ padding: '3px 8px', fontSize: 13, marginRight: 4 }} title={t('inv.print')} onClick={() => printVoucher(d, t)}>🖨 {t('inv.print')}</button>
+                <button type="button" className="tb" style={{ padding: '3px 8px', fontSize: 13, marginRight: 4 }} title={t('inv.edit')} onClick={() => setState({ mode: 'form', editing: d })}>✏️ {t('inv.edit')}</button>
                 {can('inventory', 'delete') && (
-                  <button className="xbtn" title={t('inv.deleteRow')} aria-label={t('inv.deleteRow')} onClick={() => onDelete(d)}>🗑</button>
+                  <button type="button" className="tb" style={{ padding: '3px 8px', fontSize: 13, color: '#dc2626' }} title={t('inv.delete')} onClick={() => onDelete(d)}>🗑 {t('inv.delete')}</button>
                 )}
               </td>
             </tr>
@@ -847,7 +874,7 @@ function FormView({ state, setState, can, t, bus }) {
       <div className="ghead">
         <h2>{isNew ? t('inv.new' + editing.type[0].toUpperCase() + editing.type.slice(1)) : editing.no}</h2>
         <div>
-          {!isNew && <button className="tb" onClick={() => printVoucher(editing, t)}>🖨 {t('inv.print')}</button>}{' '}
+          <button className="tb" onClick={() => printVoucher(editing, t)}>🖨 {t('inv.print')}</button>{' '}
           {!isNew && can('inventory', 'export') && <button className="tb" disabled={exporting} onClick={onExportExcel}>⬇ {t('inv.exportExcel')}</button>}{' '}
           <button className="tb" onClick={() => setState({ mode: 'list', editing: null })}>← {t('inv.back')}</button>
         </div>
@@ -979,7 +1006,9 @@ function FormView({ state, setState, can, t, bus }) {
 
       <div className="formActions">
         <button className="btn" disabled={!savePerm || saving} onClick={doSave}>{saving ? 'Đang lưu…' : t('inv.save')}</button>
-        {!isNew && can('inventory', 'delete') && <button className="tb" onClick={doDelete}>🗑 {t('inv.delete')}</button>}
+        <button type="button" className="tb" onClick={() => printVoucher(editing, t)}>🖨 {t('inv.print')}</button>
+        {!isNew && can('inventory', 'delete') && <button type="button" className="tb" style={{ color: '#dc2626' }} onClick={doDelete}>🗑 {t('inv.delete')}</button>}
+        <button type="button" className="tb" onClick={() => setState({ mode: 'list', editing: null })}>← {t('inv.back')}</button>
       </div>
     </div>
   );

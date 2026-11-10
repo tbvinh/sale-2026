@@ -315,7 +315,7 @@ public class CashVoucherResource {
         if (!"import".equals(doc.type) && !"export".equals(doc.type) && !"return".equals(doc.type)) {
             throw MasterResource.bad("Chỉ tạo được phiếu thu/chi từ phiếu nhập, xuất hoặc trả kho");
         }
-        long existed = em.createQuery("select count(v) from CashVoucher v where v.sourceDocId = :id", Long.class)
+        long existed = em.createQuery("select count(v) from CashVoucher v where v.sourceDocId = :id and v.status <> 'cancelled'", Long.class)
                 .setParameter("id", docId).getSingleResult();
         if (existed > 0) throw conflict("Phiếu kho này đã được tạo phiếu thu/chi");
 
