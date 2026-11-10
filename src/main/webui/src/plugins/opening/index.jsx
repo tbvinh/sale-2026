@@ -350,7 +350,7 @@ function View(props) {
 }
 
 export default {
-  id: 'opening', title: 'open.title', icon: '📦', order: 4, messages, search,
+  id: 'opening', title: 'open.title', icon: '📦', order: 10, messages, search,
   initialState: { kind: 'material', q: '', page: 1, pageSize: 10, editing: null, error: null, saving: false },
   Menu, ribbon, View,
 };

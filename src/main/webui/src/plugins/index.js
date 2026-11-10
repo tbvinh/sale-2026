@@ -1,6 +1,6 @@
 import { registerPlugin } from '../core/plugins.js';
 
-const SKIPPED_PLUGINS = ['calendar', 'mail', 'tasks', 'people'];
+const SKIPPED_PLUGINS = ['calendar', 'mail', 'tasks', 'people', 'bank', 'general', 'reports'];
 
 // Mỗi thư mục con có index.jsx (export default plugin) sẽ tự được đăng ký
 const modules = import.meta.glob('./*/index.jsx', { eager: true });

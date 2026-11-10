@@ -4,7 +4,7 @@ import { Loading } from '../../core/ui.jsx';
 import Denied from '../../core/Denied.jsx';
 import { useConfirm } from '../../core/confirm.jsx';
 import {
-  suppliersStore, customersStore, warehousesStore, banksStore, materialTypesStore, materialsStore,
+  suppliersStore, customersStore, warehousesStore, materialTypesStore, materialsStore,
   employeesStore, unitsStore, partnersStore, vnd,
 } from '../../core/masterdata.js';
 import { useDebounced } from '../../core/useDebounced.js';
@@ -21,7 +21,6 @@ const CATS = [
   { id: 'suppliers', icon: '🚚', store: suppliersStore, path: '/suppliers' },
   { id: 'partners', icon: '🤝', store: partnersStore, path: '/partners' },
   { id: 'employees', icon: '👨‍💼', store: employeesStore, path: '/employees' },
-  { id: 'banks', icon: '🏦', store: banksStore, path: '/banks' },
 ];
 
 const PARTNER_KINDS = [
@@ -115,7 +114,6 @@ function filtersFor(id, t, types) {
     { key: 'phone', kind: 'select', label: t('cat.phone'),
       options: [{ value: 'has', label: t('cat.hasPhone') }, { value: 'none', label: t('cat.noPhone') }] },
   ];
-  if (id === 'banks') return [{ key: 'branch', kind: 'text', label: t('cat.branch') }];
   if (id === 'warehouses') return [{ key: 'address', kind: 'text', label: t('cat.address') }];
   return []; // materialTypes, units, employees: chỉ tìm kiếm
 }
@@ -154,7 +152,6 @@ function schemaFor(id, t, types) {
       ) },
   ];
   if (id === 'materialTypes') return [{ key: 'name', label: t('cat.name') }];
-  if (id === 'banks') return [{ key: 'code', label: t('cat.bankCode') }, { key: 'name', label: t('cat.name') }, { key: 'branch', label: t('cat.branch') }];
   if (id === 'warehouses') return [{ key: 'code', label: t('cat.code') }, { key: 'name', label: t('cat.name') }, { key: 'address', label: t('cat.address') }];
   if (id === 'employees') return [
     { key: 'code', label: t('cat.code') },
@@ -188,7 +185,6 @@ const IMPORT_SPEC = {
   warehouses: { cols: ['code', 'name', 'address'], required: ['name'], sample: ['KHO001', 'Kho trung tâm', 'TP.HCM'] },
   materials: { cols: ['code', 'name', 'unit', 'price', 'type'], required: ['name'], sample: ['VT001', 'Bàn phím cơ', 'cái', '700000', 'Phụ kiện'] },
   materialTypes: { cols: ['name'], required: ['name'], sample: ['Phụ kiện'] },
-  banks: { cols: ['code', 'name', 'branch'], required: ['code', 'name'], sample: ['VCB', 'Vietcombank', 'Chi nhánh TP.HCM'] },
   employees: { cols: ['code', 'name', 'phone', 'email', 'position'], required: ['name'], sample: ['NV001', 'Nguyễn Văn A', '0901234567', 'a@congty.vn', 'Nhân viên kinh doanh'] },
   units: { cols: ['code', 'name'], required: ['name'], sample: ['DVT001', 'Cái'] },
   partners: { cols: ['code', 'name', 'phone', 'address', 'kind'], required: ['name'], sample: ['DT001', 'Công ty ABC', '0901234567', 'TP.HCM', 'customer'] },
@@ -677,7 +673,7 @@ function View(props) {
   </>);
 }
 
-export default { id: 'catalog', title: 'cat.title', icon: '🗂️', order: 6, messages,
+export default { id: 'catalog', title: 'cat.title', icon: '🗂️', order: 3, messages,
   initialState: { category: 'customers', editing: null, saving: false, error: null, busyId: null, bulkBusy: false, importing: false, pageSize: 5, ...EMPTY_VIEW },
   Menu, ribbon, View };
 

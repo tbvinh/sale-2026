@@ -686,7 +686,7 @@ function View(props) {
 }
 
 export default {
-  id: 'cash', title: 'cash.title', icon: '💵', order: 6, messages, search, Menu, ribbon, View,
+  id: 'cash', title: 'cash.title', icon: '💵', order: 2, messages, search, Menu, ribbon, View,
   initialState: {
     kind: 'receipt', q: '', dateFrom: '', dateTo: '', page: 1, pageSize: 10,
     editing: null, error: null, saving: false,

@@ -2,7 +2,6 @@ package com.vinhcancode.sales.resource;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.vinhcancode.sales.entity.Bank;
 import com.vinhcancode.sales.entity.Customer;
 import com.vinhcancode.sales.entity.Employee;
 import com.vinhcancode.sales.entity.MasterEntity;
@@ -58,7 +57,6 @@ public class MasterExportResource {
     private static final Map<String, Spec> CATALOGS = Map.ofEntries(
             entry("suppliers", new Spec(Supplier.class, "Nhà cung cấp", List.of("code", "name", "phone", "address"))),
             entry("customers", new Spec(Customer.class, "Khách hàng", List.of("code", "name", "phone", "address"))),
-            entry("banks", new Spec(Bank.class, "Ngân hàng", List.of("code", "name", "branch"))),
             entry("warehouses", new Spec(Warehouse.class, "Kho hàng", List.of("code", "name", "address"))),
             entry("units", new Spec(Unit.class, "Đơn vị tính", List.of("code", "name"))),
             entry("materialTypes", new Spec(MaterialType.class, "Nhóm vật tư", List.of("name"))),

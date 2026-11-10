@@ -1214,7 +1214,7 @@ function View(props) {
 }
 
 export default {
-  id: 'inventory', title: 'inv.title', icon: '📦', order: 5, messages, search, refresh: load,
+  id: 'inventory', title: 'inv.title', icon: '📦', order: 1, messages, search, refresh: load,
   initialState: { mode: 'list', filterType: 'all', report: null, reportFrom: firstOfMonth(), reportTo: today(), reportMaterialId: '', reportQ: '', editing: null, pageSize: 5, selected: [], importing: false, ...EMPTY_VIEW }, Menu, ribbon, View,
   // Không còn setup(){ load() }: dữ liệu kho nay cần đăng nhập (CS-S1) và Body tự tải theo truy vấn hiện tại.
 };
