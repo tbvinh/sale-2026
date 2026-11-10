@@ -3,6 +3,6 @@ package com.vinhcancode.sales;
 import io.quarkus.test.junit.QuarkusIntegrationTest;
 
 @QuarkusIntegrationTest
-class DanhMucTaiKhoanResourceIT extends DanhMucTaiKhoanResourceTest {
+class SalesFeatureIT extends SalesFeatureTest {
     // Execute the same tests but in packaged mode.
 }
