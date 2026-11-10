@@ -125,4 +125,15 @@ public class SalesFeatureTest {
             .then()
             .statusCode(200);
     }
+
+    @Test
+    @Order(11)
+    public void testOpeningInventory() {
+        given()
+            .cookie("token", authToken)
+            .when().get("/api/opening-balances?kind=material")
+            .then()
+            .statusCode(200);
+    }
 }
+

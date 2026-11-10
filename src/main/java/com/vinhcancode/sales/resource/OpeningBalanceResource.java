@@ -28,22 +28,22 @@ public class OpeningBalanceResource extends MasterResource<OpeningBalance> {
 
     @Override protected void validate(OpeningBalance e) {
         super.validate(e);
-        if (blank(e.kind)) throw bad("Loại khai báo không được để trống");
+        if (blank(e.kind)) e.kind = "material";
     }
 
     @Override protected void normalize(OpeningBalance e) {
+        if (blank(e.kind)) e.kind = "material";
         e.partnerId = blank(e.partnerId) ? null : e.partnerId;
         e.bankId = blank(e.bankId) ? null : e.bankId;
         e.accountId = blank(e.accountId) ? null : e.accountId;
         e.materialId = blank(e.materialId) ? null : e.materialId;
         e.employeeId = blank(e.employeeId) ? null : e.employeeId;
-        e.direction = blank(e.direction) ? null : e.direction;
+        if (blank(e.direction)) e.direction = defaultDirection(e.kind);
         if (e.quantity < 0) e.quantity = 0;
         if (e.unitPrice < 0) e.unitPrice = 0;
         if (e.amount < 0) e.amount = 0;
         if (e.amount == 0 && e.quantity > 0 && e.unitPrice > 0) e.amount = e.quantity * e.unitPrice;
         if (e.interestRate == null || e.interestRate.signum() < 0) e.interestRate = BigDecimal.ZERO;
-        if (e.direction == null) e.direction = defaultDirection(e.kind);
     }
 
     private static String defaultDirection(String kind) {
