@@ -70,8 +70,10 @@ import org.postgresql.copy.CopyOut;
 @Authenticated
 public class CompanyDataResource {
 
-    private static final String FORMAT = "ketoan-company-backup-csv";
-    private static final String MULTI_FORMAT = "ketoan-multi-company-backup-csv";
+    private static final String FORMAT = "pmbanhang-company-backup-csv";
+    private static final String MULTI_FORMAT = "pmbanhang-multi-company-backup-csv";
+    private static final String LEGACY_FORMAT = "ketoan-company-backup-csv";
+    private static final String LEGACY_MULTI_FORMAT = "ketoan-multi-company-backup-csv";
     private static final int FORMAT_VERSION = 2;
     private static final String ZIP_MIME = "application/zip";
     private static final int MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
@@ -397,13 +399,13 @@ public class CompanyDataResource {
             zip.closeEntry();
 
             String fmt = string(manifest, "format");
-            if (MULTI_FORMAT.equals(fmt) && number(manifest.get("formatVersion")) == FORMAT_VERSION) {
+            if ((MULTI_FORMAT.equals(fmt) || LEGACY_MULTI_FORMAT.equals(fmt)) && number(manifest.get("formatVersion")) == FORMAT_VERSION) {
                 if (!sysAdmin) {
                     throw problem(Response.Status.FORBIDDEN, "Chỉ Quản trị viên hệ thống mới được phép phục hồi gói nhiều công ty");
                 }
                 return importMultiPackage(zip, restoreUsers);
             }
-            if (!FORMAT.equals(fmt) || number(manifest.get("formatVersion")) != FORMAT_VERSION) {
+            if ((!FORMAT.equals(fmt) && !LEGACY_FORMAT.equals(fmt)) || number(manifest.get("formatVersion")) != FORMAT_VERSION) {
                 throw problem(Response.Status.BAD_REQUEST, "Định dạng tệp sao lưu không được hỗ trợ");
             }
             return importSingleCompanyFromStream(zip, manifest, companyId, restoreUsers, sysAdmin, false);
@@ -443,7 +445,8 @@ public class CompanyDataResource {
                     new TypeReference<Map<String, Object>>() { });
             nestedZip.closeEntry();
 
-            if (!FORMAT.equals(string(coManifest, "format")) || number(coManifest.get("formatVersion")) != FORMAT_VERSION) {
+            String coFmt = string(coManifest, "format");
+            if ((!FORMAT.equals(coFmt) && !LEGACY_FORMAT.equals(coFmt)) || number(coManifest.get("formatVersion")) != FORMAT_VERSION) {
                 throw problem(Response.Status.BAD_REQUEST, "Định dạng gói công ty con không được hỗ trợ: " + outerEntry.getName());
             }
             Map<String, Object> singleRes = importSingleCompanyFromStream(nestedZip, coManifest, null, restoreUsers, true, true);

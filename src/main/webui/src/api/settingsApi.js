@@ -7,3 +7,4 @@ export const settingsApi = {
 };
 
 export default settingsApi;
+

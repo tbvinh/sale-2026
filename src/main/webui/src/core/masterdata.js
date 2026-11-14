@@ -3,6 +3,7 @@ import { createStore as createRealStore } from './createstore.js';
 import { createMockStore } from './mockstore.js';
 
 export { USE_REAL_API };
+export { formatDate, formatDateTime, useDateFormat, getDateFormat, setDateFormat } from './dateFormat.js';
 export const vnd = (n) => (n || 0).toLocaleString('vi-VN') + ' đ';
 export const matchName = (q) => (x) => x.name.toLowerCase().includes(q.toLowerCase());
 
@@ -152,11 +153,11 @@ export const departmentsStore = makeStore('PB', '/departments', [
   { id: 'd4', code: 'PB-NS', name: 'Phòng Nhân sự', manager: 'Phạm Thu Dung', phone: '024 3852 1177' },
 ]);
 export const employeesStore = makeStore('NV', '/employees', [
-  { id: 'e1', code: 'NV0001', name: 'Nguyễn Văn An', phone: '090 123 4567', email: 'an.nguyen@ketoan.vn', position: 'Kế toán trưởng', departmentId: 'd1' },
-  { id: 'e2', code: 'NV0002', name: 'Trần Thị Bích', phone: '091 234 5678', email: 'bich.tran@ketoan.vn', position: 'Kế toán viên', departmentId: 'd1' },
-  { id: 'e3', code: 'NV0003', name: 'Lê Hoàng Cường', phone: '092 345 6789', email: 'cuong.le@ketoan.vn', position: 'Thủ kho', departmentId: 'd2' },
-  { id: 'e4', code: 'NV0004', name: 'Phạm Thu Dung', phone: '093 456 7890', email: 'dung.pham@ketoan.vn', position: 'Trưởng phòng Nhân sự', departmentId: 'd4' },
-  { id: 'e5', code: 'NV0005', name: 'Võ Minh Đức', phone: '094 567 8901', email: 'duc.vo@ketoan.vn', position: 'Nhân viên kinh doanh', departmentId: 'd3' },
+  { id: 'e1', code: 'NV0001', name: 'Nguyễn Văn An', phone: '090 123 4567', email: 'an.nguyen@banhang.vn', position: 'Kế toán trưởng', departmentId: 'd1' },
+  { id: 'e2', code: 'NV0002', name: 'Trần Thị Bích', phone: '091 234 5678', email: 'bich.tran@banhang.vn', position: 'Kế toán viên', departmentId: 'd1' },
+  { id: 'e3', code: 'NV0003', name: 'Lê Hoàng Cường', phone: '092 345 6789', email: 'cuong.le@banhang.vn', position: 'Thủ kho', departmentId: 'd2' },
+  { id: 'e4', code: 'NV0004', name: 'Phạm Thu Dung', phone: '093 456 7890', email: 'dung.pham@banhang.vn', position: 'Trưởng phòng Nhân sự', departmentId: 'd4' },
+  { id: 'e5', code: 'NV0005', name: 'Võ Minh Đức', phone: '094 567 8901', email: 'duc.vo@banhang.vn', position: 'Nhân viên kinh doanh', departmentId: 'd3' },
 ]);
 export const unitsStore = makeStore('DVT', '/units', [
   { id: 'u1', code: 'DVT001', name: 'Cái' },
@@ -175,6 +176,20 @@ export const partnersStore = makeStore('DT', '/partners', [
   { id: 'pt4', code: 'DT0004', name: 'Công ty Digiworld', phone: '028 3915 1919', address: 'TP. Hồ Chí Minh', kind: 'both' },
 ]);
 export const openingBalancesStore = makeStore('DK', '/opening-balances', []);
+export const diningTablesStore = makeStore('BAN', '/dining-tables', [
+  { id: 'dt1', code: 'BAN-01', name: 'Bàn 01', area: 'Tầng 1 (Trong nhà)', capacity: 4, status: 'empty', active: true, note: 'Gần cửa sổ' },
+  { id: 'dt2', code: 'BAN-02', name: 'Bàn 02', area: 'Tầng 1 (Trong nhà)', capacity: 4, status: 'empty', active: true, note: '' },
+  { id: 'dt3', code: 'BAN-03', name: 'Bàn 03', area: 'Tầng 1 (Trong nhà)', capacity: 2, status: 'empty', active: true, note: '' },
+  { id: 'dt4', code: 'BAN-04', name: 'Bàn 04', area: 'Tầng 1 (Trong nhà)', capacity: 6, status: 'empty', active: true, note: 'Bàn tròn lớn' },
+  { id: 'dt5', code: 'SV-01', name: 'Sân vườn 01', area: 'Sân vườn (Ngoài trời)', capacity: 4, status: 'empty', active: true, note: 'Có dù che nắng' },
+  { id: 'dt6', code: 'SV-02', name: 'Sân vườn 02', area: 'Sân vườn (Ngoài trời)', capacity: 4, status: 'empty', active: true, note: 'Có dù che nắng' },
+  { id: 'dt7', code: 'SV-03', name: 'Sân vườn 03', area: 'Sân vườn (Ngoài trời)', capacity: 8, status: 'empty', active: true, note: 'Bàn dài họp mặt' },
+  { id: 'dt8', code: 'BAR-01', name: 'Bar 01', area: 'Quầy Bar', capacity: 1, status: 'empty', active: true, note: 'Ghế cao quầy bar' },
+  { id: 'dt9', code: 'BAR-02', name: 'Bar 02', area: 'Quầy Bar', capacity: 1, status: 'empty', active: true, note: 'Ghế cao quầy bar' },
+  { id: 'dt10', code: 'BAR-03', name: 'Bar 03', area: 'Quầy Bar', capacity: 1, status: 'empty', active: true, note: 'Ghế cao quầy bar' },
+  { id: 'dt11', code: 'VIP-01', name: 'Phòng VIP 1', area: 'Khu VIP Lầu 1', capacity: 10, status: 'empty', active: true, note: 'Máy lạnh, tivi' },
+  { id: 'dt12', code: 'VIP-02', name: 'Phòng VIP 2', area: 'Khu VIP Lầu 1', capacity: 12, status: 'empty', active: true, note: 'Máy lạnh riêng' },
+]);
 export const closingEntriesStore = makeStore('KC', '/closing-entries', [
   { id: 'kc1', code: 'KC0001', name: 'Kết chuyển doanh thu', fromAccount: '511', toAccount: '911', description: 'Kết chuyển doanh thu bán hàng cuối kỳ' },
   { id: 'kc2', code: 'KC0002', name: 'Kết chuyển giá vốn', fromAccount: '911', toAccount: '632', description: 'Kết chuyển giá vốn hàng bán cuối kỳ' },
@@ -197,7 +212,7 @@ export const registerReset = (fn) => { if (typeof fn === 'function') extraResett
 export const resetAllStores = () => {
   [
     suppliersStore, customersStore, warehousesStore, banksStore, materialTypesStore, materialsStore, accountsStore,
-    departmentsStore, employeesStore, unitsStore, partnersStore, closingEntriesStore, openingBalancesStore,
+    departmentsStore, employeesStore, unitsStore, partnersStore, closingEntriesStore, openingBalancesStore, diningTablesStore,
   ].forEach((s) => s.reset());
   extraResetters.forEach((fn) => fn());
 };
@@ -208,4 +223,30 @@ export const searchSuppliers = (q) => suppliersStore.search(q).then((rows) => ro
 export const searchCustomers = (q) => customersStore.search(q).then((rows) => rows.map((c) => ({ id: c.id, name: c.name, hint: c.code })));
 export const searchBanks = (q) => banksStore.search(q).then((rows) => rows.map((b) => ({ id: b.id, name: b.name, hint: b.code })));
 export const searchWarehouses = (q) => warehousesStore.search(q).then((rows) => rows.map((w) => ({ id: w.id, name: w.name, hint: w.code })));
-export const searchMaterials = (q) => materialsStore.search(q).then((rows) => rows.map((m) => ({ id: m.id, name: m.name, hint: `${vnd(m.price)}/${m.unit}`, price: m.price })));
+export const searchMaterials = (q) => materialsStore.search(q).then((rows) => rows.map((m) => ({
+  id: m.id,
+  code: m.code,
+  name: m.name,
+  unit: m.unit,
+  price: m.price,
+  kind: m.kind || 'material',
+  hint: `${m.code ? '[' + m.code + '] ' : ''}${m.kind === 'service' ? '🛎️ [Dịch vụ] ' : ''}${vnd(m.price)}/${m.unit || (m.kind === 'service' ? 'lần' : 'cái')}`
+})));
+
+export const findMaterialByCode = async (code) => {
+  if (!code) return null;
+  const q = String(code).trim().toLowerCase();
+  const rows = await materialsStore.search(q, { limit: 10 });
+  const exact = rows.find((m) => String(m.code || '').trim().toLowerCase() === q);
+  if (exact) {
+    return {
+      id: exact.id,
+      code: exact.code,
+      name: exact.name,
+      unit: exact.unit,
+      price: exact.price,
+      hint: `${exact.code ? '[' + exact.code + '] ' : ''}${vnd(exact.price)}/${exact.unit || 'cái'}`
+    };
+  }
+  return null;
+};

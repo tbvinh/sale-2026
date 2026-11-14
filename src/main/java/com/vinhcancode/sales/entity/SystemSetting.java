@@ -25,3 +25,4 @@ public class SystemSetting extends PanacheEntityBase {
     @Column(name = "updated_by")
     public String updatedBy;
 }
+

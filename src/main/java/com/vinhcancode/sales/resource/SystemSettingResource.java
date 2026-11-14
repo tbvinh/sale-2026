@@ -37,6 +37,8 @@ public class SystemSettingResource {
     @Inject
     PermissionService permissions;
 
+    public static final String DEFAULT_THERMAL_CONFIG = "{\"paperSize\":\"k80\",\"receiptTitle\":\"PHIẾU XUẤT BÁN HÀNG\",\"subTitle\":\"Hóa đơn kiêm phiếu xuất kho\",\"showStoreName\":true,\"storeName\":\"\",\"showStoreAddress\":true,\"storeAddress\":\"\",\"showStorePhone\":true,\"storePhone\":\"\",\"showTaxCode\":true,\"showVoucherNo\":true,\"showDateTime\":true,\"showCustomer\":true,\"showCustomerPhone\":true,\"showCustomerAddress\":true,\"showWarehouse\":true,\"showCashier\":true,\"cashierName\":\"\",\"itemLayout\":\"multi-line\",\"showItemCode\":true,\"showItemUnit\":true,\"showItemIndex\":true,\"showTotalQty\":true,\"showGrandTotal\":true,\"showPaymentMethod\":true,\"paymentMethod\":\"Tiền mặt\",\"showAmountInWords\":false,\"thankYouMessage\":\"Cảm ơn quý khách và hẹn gặp lại!\",\"returnPolicy\":\"Quý khách vui lòng kiểm tra hàng hóa trước khi nhận.\",\"showBarcode\":true,\"showQrCode\":false,\"qrContent\":\"\"}";
+
     @GET
     public Map<String, Object> getAll() {
         List<SystemSetting> list = SystemSetting.listAll();
@@ -44,8 +46,10 @@ public class SystemSettingResource {
         for (SystemSetting s : list) {
             map.put(s.key, s.value);
         }
-        // Đảm bảo inv_delete_policy luôn có giá trị mặc định nếu chưa lưu
+        // Đảm bảo các cấu hình luôn có giá trị mặc định nếu chưa lưu
         map.putIfAbsent("inv_delete_policy", "prompt");
+        map.putIfAbsent("date_format", "dd/mm/yyyy");
+        map.putIfAbsent("thermal_receipt_config", DEFAULT_THERMAL_CONFIG);
         return map;
     }
 
@@ -56,6 +60,12 @@ public class SystemSettingResource {
         if (s == null) {
             if ("inv_delete_policy".equals(key)) {
                 return Map.of("key", "inv_delete_policy", "value", "prompt", "description", "Mặc định hỏi người dùng");
+            }
+            if ("date_format".equals(key)) {
+                return Map.of("key", "date_format", "value", "dd/mm/yyyy", "description", "Định dạng ngày hiển thị");
+            }
+            if ("thermal_receipt_config".equals(key)) {
+                return Map.of("key", "thermal_receipt_config", "value", DEFAULT_THERMAL_CONFIG, "description", "Cấu hình thiết kế mẫu in nhiệt phiếu xuất bán hàng (khổ K80/K58)");
             }
             throw new NotFoundException();
         }
@@ -81,6 +91,11 @@ public class SystemSettingResource {
             if (!val.equals("prompt") && !val.equals("cascade") && !val.equals("block")) {
                 throw MasterResource.bad("Chính sách không hợp lệ (prompt, cascade, block)");
             }
+        } else if ("date_format".equals(key)) {
+            val = val.trim().toLowerCase();
+            if (!val.equals("dd/mm/yyyy") && !val.equals("mm/dd/yyyy")) {
+                throw MasterResource.bad("Định dạng ngày không hợp lệ (dd/mm/yyyy, mm/dd/yyyy)");
+            }
         }
 
         SystemSetting s = SystemSetting.find("key", key).firstResult();
@@ -96,3 +111,4 @@ public class SystemSettingResource {
         return Response.ok(Map.of("key", s.key, "value", s.value)).build();
     }
 }
+

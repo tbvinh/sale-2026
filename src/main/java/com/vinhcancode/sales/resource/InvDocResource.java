@@ -10,6 +10,7 @@ import com.vinhcancode.sales.entity.CashVoucher;
 import com.vinhcancode.sales.entity.InvDoc;
 import com.vinhcancode.sales.entity.InvLine;
 import com.vinhcancode.sales.entity.SystemSetting;
+import com.vinhcancode.sales.entity.Warehouse;
 import com.vinhcancode.sales.service.PermissionService;
 import com.vinhcancode.sales.service.XlsxWriter;
 import com.vinhcancode.sales.service.XlsxWriter.Cell;
@@ -59,6 +60,7 @@ public class InvDocResource {
     @Inject EntityManager em;
     @Inject ObjectMapper mapper;
     @Inject PermissionService permissions;
+    @Inject com.vinhcancode.sales.service.AuditService audit;
 
     /** Xuất chi tiết phiếu kho (.xlsx): thông tin chung + dòng hàng, dùng chung cho nhập/xuất/điều chuyển. */
     @GET
@@ -127,6 +129,157 @@ public class InvDocResource {
                 .build();
     }
 
+    /** Xuất Excel tổng hợp lịch sử bán hàng & thu chi kho Bar (Dành cho Owner / Admin) */
+    @GET
+    @Path("/export-sales-excel")
+    @Produces("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    public Response exportSalesHistoryExcel(@QueryParam("warehouseId") String warehouseId,
+                                            @QueryParam("dateFrom") String dateFrom,
+                                            @QueryParam("dateTo") String dateTo,
+                                            @QueryParam("q") String q) {
+        if (!permissions.isAdmin() && !permissions.isCompanyAdmin()
+                && !permissions.has("minibar", "EXPORT") && !permissions.has("inventory", "EXPORT")) {
+            permissions.require("minibar", "EXPORT");
+        }
+
+        StringBuilder where = new StringBuilder(" where d.type = 'export'");
+        Map<String, Object> params = new HashMap<>();
+
+        if (q != null && !q.isBlank()) {
+            where.append(" and (lower(d.no) like :q or lower(d.partner.name) like :q or lower(d.note) like :q)");
+            params.put("q", "%" + q.trim().toLowerCase() + "%");
+        }
+        if (warehouseId != null && !warehouseId.isBlank() && !"all".equalsIgnoreCase(warehouseId)) {
+            where.append(" and (d.warehouseOut.id = :wid or d.warehouseIn.id = :wid)");
+            params.put("wid", warehouseId.trim());
+        }
+        if (dateFrom != null && !dateFrom.isBlank()) {
+            where.append(" and d.date >= :dateFrom");
+            params.put("dateFrom", parseDate(dateFrom));
+        }
+        if (dateTo != null && !dateTo.isBlank()) {
+            where.append(" and d.date <= :dateTo");
+            params.put("dateTo", parseDate(dateTo));
+        }
+
+        TypedQuery<InvDoc> query = em.createQuery("select distinct d from InvDoc d left join fetch d.lines l" + where + " order by d.date desc, d.no desc", InvDoc.class);
+        params.forEach(query::setParameter);
+        List<InvDoc> docs = query.setMaxResults(10_000).getResultList();
+
+        // Lấy tên kho nếu có
+        String whName = "Tất cả kho";
+        if (warehouseId != null && !warehouseId.isBlank() && !"all".equalsIgnoreCase(warehouseId)) {
+            Warehouse wh = em.find(Warehouse.class, warehouseId.trim());
+            if (wh != null) whName = wh.name;
+        }
+
+        // Tính tổng tiền mặt thu từ sổ quỹ trong kỳ và kho tương ứng
+        StringBuilder cashWhere = new StringBuilder(" where v.status = 'posted' and v.type = 'receipt'");
+        Map<String, Object> cashParams = new HashMap<>();
+        if (warehouseId != null && !warehouseId.isBlank() && !"all".equalsIgnoreCase(warehouseId)) {
+            cashWhere.append(" and (v.warehouseId = :wid or v.sourceDocId in (select d.id from InvDoc d where d.warehouseOut.id = :wid))");
+            cashParams.put("wid", warehouseId.trim());
+        }
+        if (dateFrom != null && !dateFrom.isBlank()) {
+            cashWhere.append(" and v.date >= :cFrom");
+            cashParams.put("cFrom", parseDate(dateFrom));
+        }
+        if (dateTo != null && !dateTo.isBlank()) {
+            cashWhere.append(" and v.date <= :cTo");
+            cashParams.put("cTo", parseDate(dateTo));
+        }
+        TypedQuery<Long> cashQuery = em.createQuery("select coalesce(sum(v.amount), 0) from CashVoucher v" + cashWhere, Long.class);
+        cashParams.forEach(cashQuery::setParameter);
+        long totalCashReceipt = cashQuery.getSingleResult();
+
+        // Xây dựng bảng Excel
+        List<List<Cell>> rows = new ArrayList<>();
+        rows.add(List.of(Cell.title("LỊCH SỬ BÁN HÀNG & TỔNG HỢP THU CHI KHO BAR")));
+        rows.add(List.of());
+        rows.add(List.of(Cell.label("Kho áp dụng:"), Cell.text(whName), Cell.label("Từ ngày:"), Cell.text(dateFrom != null ? dateFrom : "-"), Cell.label("Đến ngày:"), Cell.text(dateTo != null ? dateTo : "-")));
+        rows.add(List.of(Cell.label("Tổng số phiếu xuất:"), Cell.number(docs.size()), Cell.label("Tổng thu tiền mặt (Sổ quỹ):"), Cell.totalNumber(totalCashReceipt)));
+        rows.add(List.of());
+
+        // Header bảng
+        rows.add(List.of(
+            Cell.header("STT"),
+            Cell.header("Số phiếu xuất"),
+            Cell.header("Ngày giờ"),
+            Cell.header("Kho xuất"),
+            Cell.header("Khách hàng"),
+            Cell.header("Bàn / Ghi chú"),
+            Cell.header("Chi tiết món (Món x SL)"),
+            Cell.header("Tổng SL món"),
+            Cell.header("Tổng tiền (đ)")
+        ));
+
+        int stt = 1;
+        long grandTotalRevenue = 0;
+        long grandTotalItems = 0;
+
+        for (InvDoc d : docs) {
+            long docAmount = 0;
+            long docItems = 0;
+            StringBuilder linesText = new StringBuilder();
+
+            if (d.lines != null) {
+                for (InvLine line : d.lines) {
+                    long qVal = line.qty != null ? line.qty.longValue() : 0L;
+                    long pVal = line.price != null ? line.price.longValue() : 0L;
+                    docAmount += qVal * pVal;
+                    docItems += qVal;
+
+                    String pName = line.productName();
+                    if (pName != null && !pName.isBlank()) {
+                        if (!linesText.isEmpty()) linesText.append("; ");
+                        linesText.append(pName).append(" (x").append(qVal).append(")");
+                    }
+                }
+            }
+
+            grandTotalRevenue += docAmount;
+            grandTotalItems += docItems;
+
+            String docDate = d.createdAt != null
+                    ? d.createdAt.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"))
+                    : (d.date != null ? d.date.toString() : "");
+            String warehouseOutName = d.warehouseOutName() != null ? d.warehouseOutName() : "Kho Bar";
+            String partnerName = d.partnerName() != null ? d.partnerName() : "Khách vãng lai";
+
+            rows.add(List.of(
+                Cell.number(stt++),
+                Cell.text(d.no),
+                Cell.text(docDate),
+                Cell.text(warehouseOutName),
+                Cell.text(partnerName),
+                Cell.text(d.note != null ? d.note : ""),
+                Cell.text(linesText.toString()),
+                Cell.number(docItems),
+                Cell.number(docAmount)
+            ));
+        }
+
+        // Dòng tổng kết
+        rows.add(List.of(
+            Cell.text(null),
+            Cell.total("TỔNG CỘNG:"),
+            Cell.text(null),
+            Cell.text(null),
+            Cell.text(null),
+            Cell.text(null),
+            Cell.text(null),
+            Cell.totalNumber(grandTotalItems),
+            Cell.totalNumber(grandTotalRevenue)
+        ));
+
+        int[] widths = new int[]{6, 16, 14, 22, 24, 26, 45, 14, 18};
+        String fileName = "lich-su-ban-hang-kho-bar.xlsx";
+        return Response.ok(XlsxWriter.write("Lich su ban hang", widths, rows, false),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                .header("Content-Disposition", "attachment; filename=\"" + fileName + "\"")
+                .build();
+    }
+
     private static List<Cell> info(String label, String value) {
         return List.of(Cell.text(null), Cell.label(label), Cell.text(value));
     }
@@ -164,13 +317,17 @@ public class InvDocResource {
     @GET
     public Map<String, Object> list(@QueryParam("q") String q,
                                     @QueryParam("type") String type,
+                                    @QueryParam("warehouseId") String warehouseId,
+                                    @QueryParam("shiftId") String shiftId,
                                     @QueryParam("dateFrom") String dateFrom,
                                     @QueryParam("dateTo") String dateTo,
                                     @QueryParam("page") Integer page,
                                     @QueryParam("pageSize") Integer pageSize,
                                     @QueryParam("sort") String sort,
                                     @QueryParam("dir") @DefaultValue("asc") String dir) {
-        permissions.require("inventory", "READ");
+        if (!permissions.has("inventory", "READ") && !permissions.has("minibar", "READ")) {
+            permissions.require("inventory", "READ");
+        }
         StringBuilder where = new StringBuilder(" where 1=1");
         Map<String, Object> params = new HashMap<>();
 
@@ -183,6 +340,14 @@ public class InvDocResource {
             if (!PREFIX.containsKey(type)) throw MasterResource.bad("Loại phiếu không hợp lệ");
             where.append(" and d.type = :type");
             params.put("type", type);
+        }
+        if (warehouseId != null && !warehouseId.isBlank() && !"all".equalsIgnoreCase(warehouseId)) {
+            where.append(" and (d.warehouseOut.id = :wid or d.warehouseIn.id = :wid)");
+            params.put("wid", warehouseId.trim());
+        }
+        if (shiftId != null && !shiftId.isBlank() && !"all".equalsIgnoreCase(shiftId)) {
+            where.append(" and d.shiftId = :sid");
+            params.put("sid", shiftId.trim());
         }
         if (dateFrom != null && !dateFrom.isBlank()) { where.append(" and d.date >= :dateFrom"); params.put("dateFrom", parseDate(dateFrom)); }
         if (dateTo != null && !dateTo.isBlank()) { where.append(" and d.date <= :dateTo"); params.put("dateTo", parseDate(dateTo)); }
@@ -249,13 +414,16 @@ public class InvDocResource {
 
     @POST @Transactional
     public Response create(InvDoc d) {
-        permissions.require("inventory", "CREATE");
+        if (!permissions.has("inventory", "CREATE") && !permissions.has("minibar", "CREATE")) {
+            permissions.require("inventory", "CREATE");
+        }
         applyWarehouseRules(d);
         d.id = null;                                   // id do server cấp
         linkLines(d, d.lines);                         // Fix A: gán doc_id + pos trước khi persist
         long n = InvDoc.count("type", d.type) + 1;     // tốt hơn: dùng sequence/bảng counter để tránh trùng khi đồng thời
         d.no = PREFIX.get(d.type) + String.format("%04d", n);
         d.persist();
+        audit.log("inventory", "CREATE", d.no, String.format("Tạo phiếu %s (%s)", d.type, d.no));
         return Response.status(201).entity(d).build();
     }
 
@@ -294,6 +462,7 @@ public class InvDocResource {
             em.flush();
         }
         linkLines(d, in.lines);                        // Fix A: thêm dòng mới với doc_id + pos = 0..n-1
+        audit.log("inventory", "UPDATE", d.no, String.format("Cập nhật phiếu %s (%s)", d.type, d.no));
         return d;
     }
 
@@ -320,7 +489,10 @@ public class InvDocResource {
             }
         }
 
+        String docNo = doc.no;
+        String docType = doc.type;
         InvDoc.deleteById(id);
+        audit.log("inventory", "DELETE", docNo, String.format("Xóa phiếu %s (%s)", docType, docNo));
         return Response.noContent().build();
     }
 

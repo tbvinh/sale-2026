@@ -31,9 +31,19 @@ public class CashVoucher extends MasterEntity {
     public Long sourceDocId;            // phieu nhap/xuat nguon (tao tu phieu kho)
     @Column(name = "source_doc_no")
     public String sourceDocNo;
+    @Column(name = "warehouse_id")
+    public String warehouseId;          // kho lien quan (Kho Bar / Nha hang...)
+    @Column(name = "warehouse_name")
+    public String warehouseName;
+    @Column(name = "shift_id")
+    public String shiftId;              // ca lam viec (shifts)
     public String status;               // posted | cancelled
+    @Column(name = "created_at")
+    public java.time.OffsetDateTime createdAt;
     @Column(name = "created_by")
     public String createdBy;
+    @Column(name = "updated_at")
+    public java.time.OffsetDateTime updatedAt;
     @Column(name = "updated_by")
     public String updatedBy;
 }

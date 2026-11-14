@@ -20,4 +20,7 @@ import jakarta.persistence.Table;
 
     @Column(name = "image_url")
     public String imageUrl;        // /uploads/{company}/{type}/{file} hoặc /uploads/samples/...
+
+    @Column(name = "kind")
+    public String kind = "material"; // 'material' (Vật tư, hàng hóa), 'service' (Dịch vụ theo chuẩn kế toán)
 }

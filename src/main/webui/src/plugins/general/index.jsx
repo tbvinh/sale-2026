@@ -6,7 +6,7 @@ import { useConfirm } from '../../core/confirm.jsx';
 import { useDebounced } from '../../core/useDebounced.js';
 import { useAsyncQuery } from '../../core/useasyncquery.js';
 import { generalApi } from '../../api/generalApi.js';
-import { partnersStore, accountsStore, vnd } from '../../core/masterdata.js';
+import { partnersStore, accountsStore, vnd, formatDate } from '../../core/masterdata.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const firstOfMonth = () => today().slice(0, 8) + '01';
@@ -285,7 +285,7 @@ function VoucherView({ kind, state, setState, can }) {
           {items.map((v) => (
             <tr key={v.id}>
               <td>{v.code}</td>
-              <td>{v.date}</td>
+              <td>{formatDate(v.date)}</td>
               <td>{v.partnerName || v.partnerId || ''}</td>
               <td>{v.name}</td>
               <td className="num">{vnd(v.amount)}</td>
@@ -719,7 +719,7 @@ function CommandView({ command, state, setState, can }) {
                 <tbody>
                   {(result.items ?? []).map((v) => (
                     <tr key={v.id}>
-                      <td>{v.no}</td><td>{v.date}</td><td>{v.name}</td>
+                      <td>{v.no}</td><td>{formatDate(v.date)}</td><td>{v.name}</td>
                       <td className="num">{vnd(v.amount)}</td>
                     </tr>
                   ))}

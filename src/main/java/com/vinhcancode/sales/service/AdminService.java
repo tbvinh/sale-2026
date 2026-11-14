@@ -43,6 +43,9 @@ public class AdminService {
     @Inject
     PermissionService permissionService;
 
+    @Inject
+    AuditService audit;
+
     // ---------- Nguoi dung ----------
 
     public Map<String, Object> listUsers(String q, String role, Integer page, Integer pageSize) {
@@ -181,6 +184,8 @@ public class AdminService {
         }
         em.flush();
         populateUserCompanies(List.of(user));
+        audit.log("admin", "CREATE_USER", user.username,
+                String.format("Tạo người dùng: %s (%s) - Vai trò: %s", user.username, user.fullName, user.role));
         return user;
     }
 
@@ -279,6 +284,9 @@ public class AdminService {
         }
         flushOrConflict("Không thể cập nhật người dùng");
         populateUserCompanies(List.of(user));
+        audit.log("admin", "UPDATE_USER", user.username,
+                String.format("Cập nhật người dùng: %s (%s) - Vai trò: %s - Trạng thái: %s",
+                        user.username, user.fullName, user.role, Boolean.TRUE.equals(user.active) ? "Hoạt động" : "Khóa"));
         return user;
     }
 
@@ -299,11 +307,15 @@ public class AdminService {
             }
         }
         if (isAdmin(user) && countActiveAdmins() <= 1) throw bad("Không thể xóa quản trị viên cuối cùng");
+        String deletedUsername = user.username;
+        String deletedFullName = user.fullName;
         UserPermission.delete("userId", user.id);
         UserCompany.delete("userId", user.id);
         UserRole.delete("userId", user.id);
         em.remove(user);
         flushOrConflict("Không thể xóa người dùng");
+        audit.log("admin", "DELETE_USER", deletedUsername,
+                String.format("Xóa người dùng: %s (%s)", deletedUsername, deletedFullName));
     }
 
     // ---------- Phan quyen User <-> Cong ty (Tenant & Owner) & Sub-user ----------
@@ -487,7 +499,7 @@ public class AdminService {
             role = new Role();
             role.code = ROLE_COMPANY_ADMIN;
             role.name = "Chủ sở hữu công ty (Owner)";
-            role.description = "Toàn quyền nghiệp vụ kế toán trong các công ty được phân quyền";
+            role.description = "Toàn quyền nghiệp vụ PM Bán Hàng trong các công ty được phân quyền";
             role.persist();
             em.flush();
         }
@@ -626,6 +638,8 @@ public class AdminService {
             }
         }
         flushOrConflict("Không thể lưu phân quyền");
+        audit.log("admin", "UPDATE_PERMISSIONS", role.code,
+                String.format("Cập nhật ma trận phân quyền cho vai trò: %s (%s)", role.code, role.name));
     }
 
     // ---------- helper ----------

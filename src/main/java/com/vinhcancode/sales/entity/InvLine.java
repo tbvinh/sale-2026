@@ -34,8 +34,14 @@ public class InvLine extends PanacheEntityBase {
         @AttributeOverride(name="name", column=@Column(name="product_name"))})
     public Ref product;
 
-    public long qty;
-    public long price;
+    public String productName() { return product != null ? product.name : null; }
+    public String productId() { return product != null ? product.id : null; }
+
+    @Column(precision = 18, scale = 3)
+    public BigDecimal qty;
+
+    @Column(precision = 18, scale = 2)
+    public BigDecimal price;
 
     // Quan hệ 2 chiều tới phiếu: InvLine là BÊN SỞ HỮU khoá ngoại (doc_id NOT NULL).
     // Nhờ vậy Hibernate ghi doc_id ngay trong câu INSERT của dòng hàng (trước đây để collection

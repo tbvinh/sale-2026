@@ -11,6 +11,7 @@ package com.vinhcancode.sales.entity;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.*;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -49,8 +50,40 @@ public class InvDoc extends PanacheEntityBase {
     // Ref là package-private: expose kiểm tra kho đã chọn cho tầng Resource
     public boolean hasWarehouseIn() { return warehouseIn != null && warehouseIn.id != null && !warehouseIn.id.isBlank(); }
     public boolean hasWarehouseOut() { return warehouseOut != null && warehouseOut.id != null && !warehouseOut.id.isBlank(); }
+    public String warehouseOutId() { return warehouseOut != null ? warehouseOut.id : null; }
+    public String warehouseOutName() { return warehouseOut != null ? warehouseOut.name : null; }
+    public String warehouseInId() { return warehouseIn != null ? warehouseIn.id : null; }
+    public String warehouseInName() { return warehouseIn != null ? warehouseIn.name : null; }
+    public String partnerId() { return partner != null ? partner.id : null; }
+    public String partnerName() { return partner != null ? partner.name : null; }
     
     public String note;
+
+    @Column(name = "shift_id")
+    public String shiftId;
+
+    @Column(name = "created_at")
+    public OffsetDateTime createdAt;
+
+    @Column(name = "created_by")
+    public String createdBy;
+
+    @Column(name = "updated_at")
+    public OffsetDateTime updatedAt;
+
+    @Column(name = "updated_by")
+    public String updatedBy;
+
+    @PrePersist
+    void onPrePersist() {
+        if (createdAt == null) createdAt = OffsetDateTime.now();
+        if (updatedAt == null) updatedAt = createdAt;
+    }
+
+    @PreUpdate
+    void onPreUpdate() {
+        updatedAt = OffsetDateTime.now();
+    }
     
     @OneToMany(mappedBy = "doc", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("pos asc")   // thứ tự kéo thả: cột pos do InvLine.pos quản lý (InvLine sở hữu doc_id + pos)

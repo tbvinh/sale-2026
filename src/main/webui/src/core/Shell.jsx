@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { usePlugins, bus } from './plugins.js';
 import { useAuth } from './auth.jsx';
 import { useI18n } from './i18n.jsx';
-import { usePermissions } from './permissions.js';
+import { usePermissions, PLUGIN_IDS } from './permissions.js';
 import { useTenant, useCompanies, setCompanies, setActiveCompany } from './tenant.js'; // tenant store
 import { apiFetch } from './api.js';
 import { resetAllStores } from './masterdata.js';
+import { initDateFormat, useDateFormat } from './dateFormat.js';
 import GlobalSearch from './GlobalSearch.jsx';
 import StatusBar from './StatusBar.jsx';
 import Ribbon, { commonTabs, buildTabs } from './ribbon.jsx';
@@ -27,6 +28,11 @@ export default function Shell() {
   const companyId = useTenant();
   const companies = useCompanies();
   const [tenantRev, setTenantRev] = React.useState(0);
+  useDateFormat();
+
+  React.useEffect(() => {
+    initDateFormat();
+  }, []);
 
   React.useEffect(() => {
     if (!user) return undefined;
@@ -64,7 +70,13 @@ export default function Shell() {
   const role = user.role;
   const isCompanyOwner = user.roleCode === 'company_admin' || (Array.isArray(user.ownerCompanyIds) && user.ownerCompanyIds.length > 0);
   const can = (pluginId, action) => role === 'admin' || (pluginId === 'admin' && isCompanyOwner) || !!perms[pluginId]?.[action];
-  const plugins = allPlugins.filter((p) => !p.adminOnly || role === 'admin' || isCompanyOwner);
+  const plugins = allPlugins.filter((p) => {
+    if (p.adminOnly && role !== 'admin' && !isCompanyOwner) return false;
+    if (role !== 'admin' && !isCompanyOwner && PLUGIN_IDS.includes(p.id)) {
+      return can(p.id, 'read');
+    }
+    return true;
+  });
 
   // Điều hướng (plugin đang mở / state của nó / từ khóa tìm kiếm) được lưu
   // trong location.hash -> nút Back/Forward của trình duyệt dùng được.
@@ -74,9 +86,19 @@ export default function Shell() {
 
   const [tab, setTab] = useState('home');
   const [query, setQuery] = useState(found);            // chữ đang gõ trong ô tìm kiếm
-  const [navOpen, setNavOpen] = useState(() => localStorage.getItem('navOpen') !== '0');
-  const toggleNav = () => { localStorage.setItem('navOpen', navOpen ? '0' : '1'); setNavOpen(!navOpen); };
+  const [navOpen, setNavOpen] = useState(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) return false;
+    return localStorage.getItem('navOpen') !== '0';
+  });
+  const toggleNav = () => {
+    const next = !navOpen;
+    if (typeof window !== 'undefined' && window.innerWidth >= 768) {
+      localStorage.setItem('navOpen', next ? '1' : '0');
+    }
+    setNavOpen(next);
+  };
   const [userOpen, setUserOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const userMenuRef = React.useRef(null);
 
   React.useEffect(() => {
@@ -128,7 +150,15 @@ export default function Shell() {
         found: '',
         store: state ? { ...n.store, [pluginId]: { ...(n.store[pluginId] ?? {}), ...state } } : n.store,
       }));
-      setTab('home');
+      const target = plugins.find((p) => p.id === pluginId);
+      const targetRibbon = target?.ribbon?.({
+        bus, role, can,
+        state: store[pluginId] ?? target?.initialState ?? {},
+        setState: () => {},
+        t,
+      });
+      const pluginTabId = targetRibbon?.tabs?.[0]?.id ?? 'home';
+      setTab(pluginTabId);
     });
   }, []);
 
@@ -137,7 +167,7 @@ export default function Shell() {
 
   const initial = active.initialState ?? {};
   const props = {
-    bus, role, can,
+    bus, role, can, t,
     state: store[active.id] ?? initial,
     // opts.replace:true (gõ chữ, kéo…) cập nhật trang hiện tại; mặc định tạo entry mới cho Back/Forward
     setState: (patch, opts) =>
@@ -156,10 +186,39 @@ export default function Shell() {
     ? active.refresh(props)
     : props.setState({ reload: (props.state.reload ?? 0) + 1 }, { replace: true });
   const tabs = buildTabs(commonTabs({ logout, refresh, lang, setLang, navOpen, toggleNav }), active.ribbon?.({ ...props, t }));
+
+  const prevActiveIdRef = React.useRef(null);
+  React.useEffect(() => {
+    if (prevActiveIdRef.current !== active.id) {
+      prevActiveIdRef.current = active.id;
+      const pluginTab = tabs.find((x) => x.plugin)?.id;
+      if (pluginTab) {
+        setTab(pluginTab);
+      }
+    }
+  }, [active.id, tabs]);
+
   const username = user.username || '?';
   const fullName = user.name && user.name !== username ? user.name : username;
   const display = user.name && user.name !== username ? `${user.name} (${username})` : username;
   const roleLabel = user.roleName || t('role.' + role);
+  const selectPlugin = (id) => {
+    setActiveId(id);
+    const target = plugins.find((p) => p.id === id);
+    const targetRibbon = target?.ribbon?.({
+      bus, role, can,
+      state: store[id] ?? target.initialState ?? {},
+      setState: (patch, opts) =>
+        setNav((n) => ({ ...n, store: { ...n.store, [id]: { ...(n.store[id] ?? target.initialState ?? {}), ...patch } } }), opts),
+      t,
+    });
+    const pluginTabId = targetRibbon?.tabs?.[0]?.id ?? 'home';
+    setTab(pluginTabId);
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setNavOpen(false);
+    }
+  };
+
   return (
     <div className="app">
       <header className="topbar">
@@ -167,9 +226,13 @@ export default function Shell() {
           <button onClick={() => history.back()} title={t('nav.back')}>◀</button>
           <button onClick={() => history.forward()} title={t('nav.forward')}>▶</button>
         </div>
-        <button className="navtoggle" onClick={toggleNav} aria-expanded={navOpen} title={t('ribbon.navpane')}>☰</button>
-        <b>{t('app.name')}</b>
-        <form onSubmit={(e) => { e.preventDefault(); setNav((n) => ({ ...n, found: query.trim() })); }}>
+        {active.Menu ? (
+          <button className="navtoggle" onClick={toggleNav} aria-expanded={navOpen} title={t('ribbon.navpane')}>☰</button>
+        ) : (
+          <span className="navtoggle-placeholder" />
+        )}
+        <b className="apptitle">{t('app.name')}</b>
+        <form className="topsearch" onSubmit={(e) => { e.preventDefault(); setNav((n) => ({ ...n, found: query.trim() })); }}>
           <div className="searchbox">
             <span aria-hidden="true">🔍</span>
             <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('search.placeholder')}
@@ -179,6 +242,9 @@ export default function Shell() {
               aria-label={t('search.clear')} onClick={closeSearch}>✕</button>}
           </div>
         </form>
+        <button type="button" className="mobilesearchtoggle" onClick={() => setMobileSearchOpen((v) => !v)} title="Tìm kiếm">
+          🔍
+        </button>
         <select className="companysel" value={companyId} title={t('company.label')} aria-label={t('company.label')}
           onChange={(e) => switchCompany(e.target.value)}>
           {(role === 'admin' || user.allowPublic !== false) && (
@@ -218,11 +284,26 @@ export default function Shell() {
           )}
         </div>
       </header>
+      {mobileSearchOpen && (
+        <div className="mobilesearchbar">
+          <form onSubmit={(e) => { e.preventDefault(); setMobileSearchOpen(false); setNav((n) => ({ ...n, found: query.trim() })); }}>
+            <div className="searchbox">
+              <span aria-hidden="true">🔍</span>
+              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('search.placeholder')}
+                autoFocus aria-label={t('search.placeholder')}
+                onKeyDown={(e) => e.key === 'Escape' && setMobileSearchOpen(false)} />
+              {query && <button type="button" className="xbtn" title={t('search.clear')}
+                aria-label={t('search.clear')} onClick={closeSearch}>✕</button>}
+            </div>
+            <button type="button" className="tb" onClick={() => setMobileSearchOpen(false)}>✕</button>
+          </form>
+        </div>
+      )}
       <Ribbon tabs={tabs} tab={tab} setTab={setTab} />
       <div className="body">
         <nav className="rail">
           {plugins.map((p) => (
-            <button key={p.id} className={p.id === active.id ? 'on' : ''} onClick={() => setActiveId(p.id)}>
+            <button key={p.id} className={p.id === active.id ? 'on' : ''} onClick={() => selectPlugin(p.id)}>
               <span className="ico">{p.icon}{p.Badge && <p.Badge />}</span>
               <small>{t(p.title)}</small>
             </button>
@@ -232,12 +313,25 @@ export default function Shell() {
           <main className="main"><GlobalSearch query={found} plugins={plugins} can={can} onOpen={openResult} onClose={closeSearch} /></main>
         ) : (<>
           {active.Menu && navOpen && (
-            <div className="sidewrap" ref={sideRef} style={{ width: sideWidth }}>
-              <aside className="side"><active.Menu key={active.id + ':' + tenantRev} {...props} /></aside>
-              <div className="side-resizer" role="separator" aria-orientation="vertical"
-                aria-label={t('ribbon.navpane')} title={t('ribbon.navpane')}
-                onMouseDown={startResize} />
-            </div>
+            <>
+              <div className="drawer-backdrop" onClick={() => setNavOpen(false)} />
+              <div className="sidewrap" ref={sideRef} style={{ width: (typeof window !== 'undefined' && window.innerWidth < 768) ? undefined : sideWidth }}>
+                <div className="drawer-header">
+                  <b>{t(active.title)}</b>
+                  <button type="button" className="xbtn" onClick={() => setNavOpen(false)} aria-label="Close">✕</button>
+                </div>
+                <aside className="side" onClick={(e) => {
+                  if (e.target.closest('button, a')) {
+                    if (typeof window !== 'undefined' && window.innerWidth < 768) setNavOpen(false);
+                  }
+                }}>
+                  <active.Menu key={active.id + ':' + tenantRev} {...props} />
+                </aside>
+                <div className="side-resizer" role="separator" aria-orientation="vertical"
+                  aria-label={t('ribbon.navpane')} title={t('ribbon.navpane')}
+                  onMouseDown={startResize} />
+              </div>
+            </>
           )}
           <main className="main"><active.View key={active.id + ':' + tenantRev} {...props} /></main>
         </>)}

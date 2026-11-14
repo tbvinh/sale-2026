@@ -81,3 +81,28 @@ export async function downloadFile(path, filename) {
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+// Gửi file multipart/form-data lên máy chủ
+export async function uploadFile(path, formData) {
+  const token = getToken();
+  let res;
+  try {
+    res = await fetch(BASE + path, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...tenantHeaders(),
+      },
+      body: formData,
+    });
+  } catch (e) {
+    throw new HttpError(0, 'Không kết nối được máy chủ');
+  }
+
+  if (res.status === 401) onUnauthorized();
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new HttpError(res.status, data?.message ?? data?.error ?? res.statusText, data);
+  return data;
+}

@@ -8,12 +8,17 @@ import Denied from '../../core/Denied.jsx';
 import { PLUGIN_IDS, ACTIONS } from '../../core/permissions.js';
 import { getCompanyId, setActiveCompany, setCompanies } from '../../core/tenant.js';
 import { resetAllStores } from '../../core/masterdata.js';
+import { formatDateTime, getDateFormat, setDateFormat, FORMAT_DD_MM_YYYY, FORMAT_MM_DD_YYYY } from '../../core/dateFormat.js';
 import { adminApi } from '../../api/adminApi.js';
 import { settingsApi } from '../../api/settingsApi.js';
+import { DEFAULT_THERMAL_CONFIG, thermalReceiptHtml, printThermalReceipt, clearThermalConfigCache } from '../inventory/voucher.js';
+import { getActiveCompany } from '../../core/tenant.js';
+import { AuditLogView } from './AuditLogView.jsx';
 
 const MODULE_KEYS = {
   inventory: 'inv.title', catalog: 'cat.title', opening: 'open.title', cash: 'cash.title',
   bank: 'bank.title', general: 'general.title', reports: 'reports.title',
+  minibar: 'minibar.title', shifts: 'minibar.shifts', tables: 'minibar.catalog',
 };
 const ACTION_KEYS = {
   read: 'admin.read', create: 'admin.create', update: 'admin.update',
@@ -92,7 +97,7 @@ const messages = {
     'admin.vtype.bank_transfer': 'Phiếu luân chuyển tiền tệ',
     'admin.vtype.general_journal': 'Phiếu kế toán tổng hợp',
     'admin.vtype.general_offset': 'Phiếu bù trừ công nợ',
-    'admin.vtype.opening_balances': 'Tồn kho đầu kỳ (Vật tư, hàng hóa)',
+    'admin.vtype.opening_balances': 'Số dư & Tồn kho đầu kỳ (Vật tư, Quỹ tiền mặt)',
     'admin.userCompanies': 'Công ty quản trị / Owner',
     'admin.allCompanies': 'Tất cả công ty (Quản trị hệ thống)',
     'admin.publicCoBadge': 'Công ty mặc định (public)',
@@ -120,6 +125,36 @@ const messages = {
     'admin.settingsSaved': 'Đã lưu thiết lập hệ thống.',
     'admin.saveSettings': 'Lưu thiết lập',
     'admin.savingSettings': 'Đang lưu…',
+    'admin.dateFormat': 'Định dạng ngày hiển thị',
+    'admin.dateFormatHint': 'Quy định định dạng ngày hiển thị trên toàn bộ hệ thống (danh sách chứng từ, sổ sách và báo cáo).',
+    'admin.formatDMY': 'dd/mm/yyyy (Ngày/Tháng/Năm)',
+    'admin.formatDMYDesc': 'Định dạng chuẩn tại Việt Nam và kế toán (ví dụ: 31/12/2026).',
+    'admin.formatMDY': 'mm/dd/yyyy (Tháng/Ngày/Năm)',
+    'admin.formatMDYDesc': 'Định dạng chuẩn Mỹ / quốc tế (ví dụ: 12/31/2026).',
+    'admin.receiptTab': 'Mẫu in nhiệt',
+    'admin.receiptTitle': 'Thiết kế mẫu in nhiệt phiếu xuất bán hàng',
+    'admin.receiptDesc': 'Tùy chỉnh bố cục, thông tin cửa hàng, bảng hàng hóa và chân hóa đơn cho máy in nhiệt (khổ K80, K58).',
+    'admin.receiptSaved': 'Đã lưu thiết kế mẫu in nhiệt thành công.',
+    'admin.receiptTestPrint': 'In thử ra máy in',
+    'admin.receiptReset': 'Khôi phục mặc định',
+    'admin.receiptSave': 'Lưu thiết kế',
+    'admin.receiptSaving': 'Đang lưu thiết kế…',
+    'admin.auditTab': 'Nhật ký hoạt động',
+    'admin.auditTitle': 'Nhật ký hoạt động & Kiểm toán (Audit Trail)',
+    'admin.auditDesc': 'Theo dõi chi tiết mọi thay đổi, ai đã tạo phiếu, kết ca, phân quyền hoặc xóa dữ liệu.',
+    'admin.auditModule': 'Chức năng',
+    'admin.auditAction': 'Hành động',
+    'admin.auditUser': 'Người dùng',
+    'admin.auditTime': 'Thời gian',
+    'admin.auditSearch': 'Tìm kiếm từ khóa…',
+    'admin.auditKeyword': 'Từ khóa',
+    'admin.auditAllModules': 'Tất cả chức năng',
+    'admin.auditAllUsers': 'Tất cả người dùng',
+    'admin.auditDetailDesc': 'Chi tiết / Mô tả',
+    'admin.auditEmpty': 'Chưa có nhật ký hoạt động nào phù hợp.',
+    'minibar.title': 'Quán ăn / Bar',
+    'minibar.shifts': 'Bàn giao ca',
+    'minibar.catalog': 'Danh mục bàn',
   },
   en: {
     'admin.title': 'Administration', 'admin.usersTab': 'Users', 'admin.rolesTab': 'Roles & permissions',
@@ -192,7 +227,7 @@ const messages = {
     'admin.vtype.bank_transfer': 'Internal Bank Transfer',
     'admin.vtype.general_journal': 'General Journal Voucher',
     'admin.vtype.general_offset': 'Debt Offset Voucher',
-    'admin.vtype.opening_balances': 'Opening Inventory (Products & Materials)',
+    'admin.vtype.opening_balances': 'Opening Balances & Inventory (Materials, Cash)',
     'admin.userCompanies': 'Assigned Companies / Owner',
     'admin.allCompanies': 'All companies (System Admin)',
     'admin.publicCoBadge': 'Default company (public)',
@@ -220,6 +255,36 @@ const messages = {
     'admin.settingsSaved': 'System settings saved.',
     'admin.saveSettings': 'Save settings',
     'admin.savingSettings': 'Saving…',
+    'admin.dateFormat': 'Date Display Format',
+    'admin.dateFormatHint': 'Defines the date display format across the entire system (vouchers, ledgers, and reports).',
+    'admin.formatDMY': 'dd/mm/yyyy (Day/Month/Year)',
+    'admin.formatDMYDesc': 'Standard format in Vietnam and accounting (e.g. 31/12/2026).',
+    'admin.formatMDY': 'mm/dd/yyyy (Month/Day/Year)',
+    'admin.formatMDYDesc': 'US / International standard format (e.g. 12/31/2026).',
+    'admin.receiptTab': 'Thermal Receipt',
+    'admin.receiptTitle': 'Thermal Receipt Template Designer',
+    'admin.receiptDesc': 'Customize header, line items, and receipt footer for thermal printers (K80, K58).',
+    'admin.receiptSaved': 'Thermal receipt template saved successfully.',
+    'admin.receiptTestPrint': 'Test Print',
+    'admin.receiptReset': 'Reset to Default',
+    'admin.receiptSave': 'Save Template',
+    'admin.receiptSaving': 'Saving template…',
+    'admin.auditTab': 'Audit Trail',
+    'admin.auditTitle': 'Audit Trail & Activity Log',
+    'admin.auditDesc': 'Track details of all system activities, documents, shifts, permissions, and deletions.',
+    'admin.auditModule': 'Module',
+    'admin.auditAction': 'Action',
+    'admin.auditUser': 'User',
+    'admin.auditTime': 'Timestamp',
+    'admin.auditSearch': 'Search keywords…',
+    'admin.auditKeyword': 'Keyword',
+    'admin.auditAllModules': 'All modules',
+    'admin.auditAllUsers': 'All users',
+    'admin.auditDetailDesc': 'Details / Description',
+    'admin.auditEmpty': 'No audit logs found.',
+    'minibar.title': 'Mini Bar / Dining',
+    'minibar.shifts': 'Shift Handover',
+    'minibar.catalog': 'Dining Tables',
   },
 };
 
@@ -241,7 +306,11 @@ const buildPermMatrix = (mode = 'default') => {
     for (const act of ACTIONS) {
       if (mode === 'full') m[mod][act] = true;
       else if (mode === 'readonly') m[mod][act] = act === 'read';
-      else m[mod][act] = act !== 'delete';
+      else {
+        // Mặc định: 'tables' (danh mục bàn) chỉ cho xem, không cho thêm sửa xóa
+        if (mod === 'tables') m[mod][act] = act === 'read';
+        else m[mod][act] = act !== 'delete';
+      }
     }
   }
   return m;
@@ -493,7 +562,7 @@ function Users({ can, isSystemAdmin = true, currentUser, onOpenBackup }) {
                   <span className="rolebadge" style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 13 }}>
                     {prefix}
                   </span>
-                  <input value={editing.shortUsername ?? ''} placeholder="vd: user1, ketoan1..."
+                  <input value={editing.shortUsername ?? ''} placeholder="vd: user1, banhang1..."
                     onChange={(e) => setEditing({ ...editing, shortUsername: e.target.value })} />
                 </div>
                 <span className="muted" style={{ display: 'block', marginTop: 4 }}>
@@ -1460,7 +1529,7 @@ function Companies({ can, onOpenTruncate }) {
                   </div>
                 </td>
                 <td>{row.status === 'active' ? t('admin.companyActive') : t('admin.companyInactive')}</td>
-                <td>{String(row.createdAt ?? '').replace('T', ' ').slice(0, 19)}</td>
+                <td>{formatDateTime(row.createdAt)}</td>
                 <td onClick={(e) => e.stopPropagation()}>
                   {can('admin', 'delete') && onOpenTruncate && (
                     <button className="xbtn" title={t('admin.truncateTab')} aria-label={t('admin.truncateTab')}
@@ -1913,6 +1982,7 @@ function OwnerCompanyBackup() {
 function SystemSettings({ can }) {
   const { t } = useI18n();
   const [policy, setPolicy] = useState('prompt');
+  const [dateFormat, setDateFormatState] = useState(getDateFormat());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -1921,8 +1991,14 @@ function SystemSettings({ can }) {
     let active = true;
     (async () => {
       try {
-        const res = await settingsApi.get('inv_delete_policy');
-        if (active && res?.value) setPolicy(res.value);
+        const res = await settingsApi.getAll();
+        if (active) {
+          if (res?.inv_delete_policy) setPolicy(res.inv_delete_policy);
+          if (res?.date_format) {
+            setDateFormatState(res.date_format);
+            setDateFormat(res.date_format);
+          }
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -1936,7 +2012,11 @@ function SystemSettings({ can }) {
     setSaving(true);
     setMsg(null);
     try {
-      await settingsApi.update('inv_delete_policy', policy);
+      await Promise.all([
+        settingsApi.update('inv_delete_policy', policy),
+        settingsApi.update('date_format', dateFormat),
+      ]);
+      setDateFormat(dateFormat);
       setMsg({ type: 'ok', text: t('admin.settingsSaved') });
     } catch (e) {
       setMsg({ type: 'err', text: e?.message ?? String(e) });
@@ -1948,7 +2028,46 @@ function SystemSettings({ can }) {
   if (loading) return <Loading />;
 
   return (
-    <div style={{ maxWidth: 800, marginTop: 16 }}>
+    <div style={{ maxWidth: 800, marginTop: 16, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Cấu hình Định dạng ngày */}
+      <div className="card" style={{ padding: 24, background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+        <h3 style={{ marginTop: 0, marginBottom: 8, fontSize: 16, color: '#1e293b' }}>📅 {t('admin.dateFormat')}</h3>
+        <p style={{ color: '#64748b', fontSize: 13, marginBottom: 20 }}>{t('admin.dateFormatHint')}</p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', padding: 10, borderRadius: 6, border: dateFormat === FORMAT_DD_MM_YYYY ? '1px solid #3b82f6' : '1px solid #e2e8f0', background: dateFormat === FORMAT_DD_MM_YYYY ? '#eff6ff' : 'transparent' }}>
+            <input
+              type="radio"
+              name="date_format"
+              value={FORMAT_DD_MM_YYYY}
+              checked={dateFormat === FORMAT_DD_MM_YYYY}
+              onChange={() => setDateFormatState(FORMAT_DD_MM_YYYY)}
+              style={{ marginTop: 3 }}
+            />
+            <div>
+              <strong style={{ color: '#0f172a' }}>{t('admin.formatDMY')}</strong>
+              <div style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>{t('admin.formatDMYDesc')}</div>
+            </div>
+          </label>
+
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', padding: 10, borderRadius: 6, border: dateFormat === FORMAT_MM_DD_YYYY ? '1px solid #3b82f6' : '1px solid #e2e8f0', background: dateFormat === FORMAT_MM_DD_YYYY ? '#eff6ff' : 'transparent' }}>
+            <input
+              type="radio"
+              name="date_format"
+              value={FORMAT_MM_DD_YYYY}
+              checked={dateFormat === FORMAT_MM_DD_YYYY}
+              onChange={() => setDateFormatState(FORMAT_MM_DD_YYYY)}
+              style={{ marginTop: 3 }}
+            />
+            <div>
+              <strong style={{ color: '#0f172a' }}>{t('admin.formatMDY')}</strong>
+              <div style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>{t('admin.formatMDYDesc')}</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      {/* Cấu hình Chính sách xóa phiếu kho */}
       <div className="card" style={{ padding: 24, background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
         <h3 style={{ marginTop: 0, marginBottom: 8, fontSize: 16, color: '#1e293b' }}>⚙️ {t('admin.invDeletePolicy')}</h3>
         <p style={{ color: '#64748b', fontSize: 13, marginBottom: 20 }}>{t('admin.invDeletePolicyHint')}</p>
@@ -2030,6 +2149,629 @@ function SystemSettings({ can }) {
   );
 }
 
+const SAMPLE_RECEIPT_DOC = {
+  no: 'XK-202611-0089',
+  type: 'export',
+  isSales: true,
+  date: new Date().toISOString().slice(0, 10),
+  partner: {
+    id: 'sample-p1',
+    name: 'Công ty TNHH Smart Logistics',
+    phone: '0908 123 456',
+    address: '123 Đường Số 7, KCN Sóng Thần, Bình Dương',
+  },
+  warehouseOut: {
+    id: 'sample-w1',
+    name: 'Kho Thiết bị & Linh kiện TP.HCM',
+  },
+  createdBy: 'Thu ngân 01',
+  note: 'Giao hàng trong giờ hành chính, gọi trước 15p',
+  lines: [
+    {
+      id: 'l1',
+      product: { id: 'p1', code: 'AGV-LP-01', name: 'Robot AGV thân thấp (low profile)', unit: 'cái' },
+      qty: 2,
+      price: 150000,
+    },
+    {
+      id: 'l2',
+      product: { id: 'p2', code: 'LIDAR-2D', name: 'Cảm biến Lidar 2D điều hướng quét 360 độ', unit: 'chiếc' },
+      qty: 1,
+      price: 850000,
+    },
+    {
+      id: 'l3',
+      product: { id: 'p3', code: 'TAPE-AGV-50', name: 'Băng keo dán sàn định vị AGV 50m', unit: 'cuộn' },
+      qty: 5,
+      price: 45000,
+    },
+  ],
+};
+
+function ThermalReceiptDesigner({ can }) {
+  const { t } = useI18n();
+  const [config, setConfig] = useState(DEFAULT_THERMAL_CONFIG);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [company, setCompany] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const co = getActiveCompany();
+        if (alive) setCompany(co);
+        const res = await settingsApi.get('thermal_receipt_config');
+        if (res?.value && alive) {
+          const parsed = typeof res.value === 'string' ? JSON.parse(res.value) : res.value;
+          setConfig((prev) => ({ ...prev, ...parsed }));
+        }
+      } catch {
+        /* fallback to default */
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const update = (key, val) => {
+    setConfig((prev) => ({ ...prev, [key]: val }));
+  };
+
+  const onSave = async () => {
+    setSaving(true);
+    setMsg(null);
+    try {
+      await settingsApi.update('thermal_receipt_config', JSON.stringify(config));
+      clearThermalConfigCache();
+      setMsg({ type: 'ok', text: t('admin.receiptSaved') });
+    } catch (e) {
+      setMsg({ type: 'err', text: e?.message ?? String(e) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onReset = () => {
+    setConfig({ ...DEFAULT_THERMAL_CONFIG });
+    setMsg(null);
+  };
+
+  const onTestPrint = () => {
+    printThermalReceipt(SAMPLE_RECEIPT_DOC, t, config);
+  };
+
+  if (loading) return <Loading />;
+
+  const previewHtml = thermalReceiptHtml(SAMPLE_RECEIPT_DOC, t, company, config);
+
+  const cardStyle = {
+    padding: 18,
+    background: '#fff',
+    borderRadius: 8,
+    border: '1px solid #e2e8f0',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+  };
+
+  const checkRowStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    fontSize: 13,
+    cursor: 'pointer',
+    userSelect: 'none',
+  };
+
+  const inputStyle = {
+    padding: '6px 10px',
+    border: '1px solid #cbd5e1',
+    borderRadius: 4,
+    fontSize: 13,
+    width: '100%',
+    boxSizing: 'border-box',
+    marginTop: 4,
+  };
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      {/* Thanh tiêu đề & nút hành động */}
+      <div style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+        marginBottom: 16,
+        paddingBottom: 12,
+        borderBottom: '1px solid #e2e8f0'
+      }}>
+        <div>
+          <h3 style={{ margin: '0 0 4px', fontSize: 17, color: '#0f172a' }}>🧾 {t('admin.receiptTitle')}</h3>
+          <p style={{ margin: 0, color: '#64748b', fontSize: 13 }}>{t('admin.receiptDesc')}</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button type="button" className="tb" onClick={onReset} style={{ fontSize: 13 }}>
+            🔄 {t('admin.receiptReset')}
+          </button>
+          <button type="button" className="tb" onClick={onTestPrint} style={{ fontSize: 13, borderColor: '#0284c7', color: '#0284c7', fontWeight: 600 }}>
+            🖨 {t('admin.receiptTestPrint')}
+          </button>
+          <button
+            type="button"
+            className="btn"
+            style={{ padding: '7px 18px', fontWeight: 600 }}
+            disabled={saving}
+            onClick={onSave}
+          >
+            💾 {saving ? t('admin.receiptSaving') : t('admin.receiptSave')}
+          </button>
+        </div>
+      </div>
+
+      {msg && (
+        <div style={{
+          marginBottom: 16,
+          padding: '10px 14px',
+          borderRadius: 6,
+          background: msg.type === 'ok' ? '#dcfce7' : '#fee2e2',
+          color: msg.type === 'ok' ? '#166534' : '#991b1b',
+          fontSize: 13,
+          fontWeight: 500,
+        }}>
+          {msg.text}
+        </div>
+      )}
+
+      {/* Bố cục 2 cột: Cài đặt bên trái, Live Preview bên phải */}
+      <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        {/* CỘT TRÁI: FORM THIẾT KẾ */}
+        <div style={{ flex: '1 1 480px', display: 'flex', flexDirection: 'column', gap: 16, minWidth: 320 }}>
+          {/* 1. Khổ giấy in & Kiểu hiển thị */}
+          <div style={cardStyle}>
+            <h4 style={{ margin: '0 0 12px', fontSize: 14.5, color: '#1e293b' }}>📄 1. Khổ giấy in nhiệt & Bố cục hàng hóa</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 6 }}>
+                  Khổ giấy in:
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className={'tb' + (config.paperSize === 'k80' ? ' on' : '')}
+                    style={{ flex: 1, padding: '7px 10px', fontSize: 13, fontWeight: config.paperSize === 'k80' ? 700 : 400 }}
+                    onClick={() => update('paperSize', 'k80')}
+                  >
+                    K80 (80mm - Tiêu chuẩn)
+                  </button>
+                  <button
+                    type="button"
+                    className={'tb' + (config.paperSize === 'k58' ? ' on' : '')}
+                    style={{ flex: 1, padding: '7px 10px', fontSize: 13, fontWeight: config.paperSize === 'k58' ? 700 : 400 }}
+                    onClick={() => update('paperSize', 'k58')}
+                  >
+                    K58 (58mm - Mini/POS)
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 6 }}>
+                  Kiểu hiển thị danh sách hàng hóa:
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className={'tb' + (config.itemLayout === 'multi-line' ? ' on' : '')}
+                    style={{ flex: 1, padding: '7px 8px', fontSize: 12.5, fontWeight: config.itemLayout === 'multi-line' ? 700 : 400 }}
+                    onClick={() => update('itemLayout', 'multi-line')}
+                    title="Dòng 1: Tên hàng; Dòng 2: SL x Đơn giá = Thành tiền (chuẩn máy in bill)"
+                  >
+                    2 Dòng (Chuẩn Bill)
+                  </button>
+                  <button
+                    type="button"
+                    className={'tb' + (config.itemLayout === 'table' ? ' on' : '')}
+                    style={{ flex: 1, padding: '7px 8px', fontSize: 12.5, fontWeight: config.itemLayout === 'table' ? 700 : 400 }}
+                    onClick={() => update('itemLayout', 'table')}
+                    title="Bảng cột truyền thống (STT, Tên, SL, Giá, Thành tiền)"
+                  >
+                    Bảng cột truyền thống
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 2. Tiêu đề & Thông tin cửa hàng */}
+          <div style={cardStyle}>
+            <h4 style={{ margin: '0 0 12px', fontSize: 14.5, color: '#1e293b' }}>🏪 2. Tiêu đề & Thông tin cửa hàng (Đầu hóa đơn)</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Tiêu đề chính hóa đơn:</label>
+                <input
+                  type="text"
+                  style={inputStyle}
+                  value={config.receiptTitle ?? ''}
+                  placeholder="PHIẾU XUẤT BÁN HÀNG"
+                  onChange={(e) => update('receiptTitle', e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Tiêu đề phụ / Dòng mô tả:</label>
+                <input
+                  type="text"
+                  style={inputStyle}
+                  value={config.subTitle ?? ''}
+                  placeholder="Hóa đơn kiêm phiếu xuất kho"
+                  onChange={(e) => update('subTitle', e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div>
+                <label style={checkRowStyle}>
+                  <input
+                    type="checkbox"
+                    checked={!!config.showStoreName}
+                    onChange={(e) => update('showStoreName', e.target.checked)}
+                  />
+                  <span>Hiển thị Tên cửa hàng / Công ty</span>
+                </label>
+                {config.showStoreName && (
+                  <input
+                    type="text"
+                    style={{ ...inputStyle, marginLeft: 22, width: 'calc(100% - 22px)' }}
+                    placeholder={`Ghi đè tên cửa hàng (để trống sẽ lấy: "${company?.name || 'Cửa hàng'}")`}
+                    value={config.storeName ?? ''}
+                    onChange={(e) => update('storeName', e.target.value)}
+                  />
+                )}
+              </div>
+
+              <div>
+                <label style={checkRowStyle}>
+                  <input
+                    type="checkbox"
+                    checked={!!config.showStoreAddress}
+                    onChange={(e) => update('showStoreAddress', e.target.checked)}
+                  />
+                  <span>Hiển thị Địa chỉ cửa hàng</span>
+                </label>
+                {config.showStoreAddress && (
+                  <input
+                    type="text"
+                    style={{ ...inputStyle, marginLeft: 22, width: 'calc(100% - 22px)' }}
+                    placeholder={`Ghi đè địa chỉ (để trống sẽ lấy: "${company?.address || 'Địa chỉ công ty'}")`}
+                    value={config.storeAddress ?? ''}
+                    onChange={(e) => update('storeAddress', e.target.value)}
+                  />
+                )}
+              </div>
+
+              <div>
+                <label style={checkRowStyle}>
+                  <input
+                    type="checkbox"
+                    checked={!!config.showStorePhone}
+                    onChange={(e) => update('showStorePhone', e.target.checked)}
+                  />
+                  <span>Hiển thị Hotline / Số điện thoại</span>
+                </label>
+                {config.showStorePhone && (
+                  <input
+                    type="text"
+                    style={{ ...inputStyle, marginLeft: 22, width: 'calc(100% - 22px)' }}
+                    placeholder={`Ghi đè số hotline (để trống sẽ lấy: "${company?.phone || 'Số điện thoại'}")`}
+                    value={config.storePhone ?? ''}
+                    onChange={(e) => update('storePhone', e.target.value)}
+                  />
+                )}
+              </div>
+
+              <div>
+                <label style={checkRowStyle}>
+                  <input
+                    type="checkbox"
+                    checked={!!config.showTaxCode}
+                    onChange={(e) => update('showTaxCode', e.target.checked)}
+                  />
+                  <span>Hiển thị Mã số thuế (MST) của công ty</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* 3. Thông tin chứng từ & Khách hàng */}
+          <div style={cardStyle}>
+            <h4 style={{ margin: '0 0 12px', fontSize: 14.5, color: '#1e293b' }}>📋 3. Thông tin chứng từ & Khách hàng</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
+              <label style={checkRowStyle}>
+                <input
+                  type="checkbox"
+                  checked={!!config.showVoucherNo}
+                  onChange={(e) => update('showVoucherNo', e.target.checked)}
+                />
+                <span>Hiện Số phiếu (Số hóa đơn)</span>
+              </label>
+
+              <label style={checkRowStyle}>
+                <input
+                  type="checkbox"
+                  checked={!!config.showDateTime}
+                  onChange={(e) => update('showDateTime', e.target.checked)}
+                />
+                <span>Hiện Ngày giờ lập</span>
+              </label>
+
+              <label style={checkRowStyle}>
+                <input
+                  type="checkbox"
+                  checked={!!config.showCustomer}
+                  onChange={(e) => update('showCustomer', e.target.checked)}
+                />
+                <span>Hiện Tên khách hàng</span>
+              </label>
+
+              <label style={checkRowStyle}>
+                <input
+                  type="checkbox"
+                  checked={!!config.showCustomerPhone}
+                  onChange={(e) => update('showCustomerPhone', e.target.checked)}
+                />
+                <span>Hiện Số điện thoại khách</span>
+              </label>
+
+              <label style={checkRowStyle}>
+                <input
+                  type="checkbox"
+                  checked={!!config.showCustomerAddress}
+                  onChange={(e) => update('showCustomerAddress', e.target.checked)}
+                />
+                <span>Hiện Địa chỉ giao hàng</span>
+              </label>
+
+              <label style={checkRowStyle}>
+                <input
+                  type="checkbox"
+                  checked={!!config.showWarehouse}
+                  onChange={(e) => update('showWarehouse', e.target.checked)}
+                />
+                <span>Hiện Kho xuất hàng</span>
+              </label>
+
+              <label style={checkRowStyle}>
+                <input
+                  type="checkbox"
+                  checked={!!config.showCashier}
+                  onChange={(e) => update('showCashier', e.target.checked)}
+                />
+                <span>Hiện Tên thu ngân / người lập</span>
+              </label>
+            </div>
+          </div>
+
+          {/* 4. Tùy chọn hàng hóa & Thanh toán */}
+          <div style={cardStyle}>
+            <h4 style={{ margin: '0 0 12px', fontSize: 14.5, color: '#1e293b' }}>📦 4. Chi tiết mặt hàng & Thanh toán</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10, marginBottom: 12 }}>
+              <label style={checkRowStyle}>
+                <input
+                  type="checkbox"
+                  checked={!!config.showItemIndex}
+                  onChange={(e) => update('showItemIndex', e.target.checked)}
+                />
+                <span>Hiện Số thứ tự mặt hàng (STT)</span>
+              </label>
+
+              <label style={checkRowStyle}>
+                <input
+                  type="checkbox"
+                  checked={!!config.showItemCode}
+                  onChange={(e) => update('showItemCode', e.target.checked)}
+                />
+                <span>Hiện Mã hàng hóa (SKU / Code)</span>
+              </label>
+
+              <label style={checkRowStyle}>
+                <input
+                  type="checkbox"
+                  checked={!!config.showItemUnit}
+                  onChange={(e) => update('showItemUnit', e.target.checked)}
+                />
+                <span>Hiện Đơn vị tính (ĐVT)</span>
+              </label>
+
+              <label style={checkRowStyle}>
+                <input
+                  type="checkbox"
+                  checked={!!config.showTotalQty}
+                  onChange={(e) => update('showTotalQty', e.target.checked)}
+                />
+                <span>Hiện Dòng Tổng số lượng món</span>
+              </label>
+
+              <label style={checkRowStyle}>
+                <input
+                  type="checkbox"
+                  checked={!!config.showGrandTotal}
+                  onChange={(e) => update('showGrandTotal', e.target.checked)}
+                />
+                <span>Hiện Tổng tiền thanh toán</span>
+              </label>
+
+              <label style={checkRowStyle}>
+                <input
+                  type="checkbox"
+                  checked={!!config.showPaymentMethod}
+                  onChange={(e) => update('showPaymentMethod', e.target.checked)}
+                />
+                <span>Hiện Phương thức thanh toán</span>
+              </label>
+            </div>
+
+            {config.showPaymentMethod && (
+              <div style={{ maxWidth: 320 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Phương thức thanh toán mặc định:</label>
+                <input
+                  type="text"
+                  style={inputStyle}
+                  value={config.paymentMethod ?? 'Tiền mặt'}
+                  placeholder="Tiền mặt / Chuyển khoản"
+                  onChange={(e) => update('paymentMethod', e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* 5. Chân trang & Lời chúc */}
+          <div style={cardStyle}>
+            <h4 style={{ margin: '0 0 12px', fontSize: 14.5, color: '#1e293b' }}>✍️ 5. Lời cảm ơn, lưu ý & Mã vạch chân hóa đơn</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Lời cảm ơn (In đậm cuối hóa đơn):</label>
+                <input
+                  type="text"
+                  style={inputStyle}
+                  value={config.thankYouMessage ?? ''}
+                  placeholder="Cảm ơn quý khách và hẹn gặp lại!"
+                  onChange={(e) => update('thankYouMessage', e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Chính sách đổi trả / Lưu ý bảo hành:</label>
+                <textarea
+                  rows={2}
+                  style={{ ...inputStyle, resize: 'vertical' }}
+                  value={config.returnPolicy ?? ''}
+                  placeholder="Quý khách vui lòng kiểm tra hàng hóa trước khi nhận."
+                  onChange={(e) => update('returnPolicy', e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginTop: 4 }}>
+                <label style={checkRowStyle}>
+                  <input
+                    type="checkbox"
+                    checked={!!config.showBarcode}
+                    onChange={(e) => update('showBarcode', e.target.checked)}
+                  />
+                  <span>In mã vạch số phiếu (Barcode Code 39)</span>
+                </label>
+
+                <div>
+                  <label style={checkRowStyle}>
+                    <input
+                      type="checkbox"
+                      checked={!!config.showQrCode}
+                      onChange={(e) => update('showQrCode', e.target.checked)}
+                    />
+                    <span>In mã QR Code ở chân bill</span>
+                  </label>
+                  {config.showQrCode && (
+                    <input
+                      type="text"
+                      style={inputStyle}
+                      placeholder="Link website / hotline tra cứu"
+                      value={config.qrContent ?? ''}
+                      onChange={(e) => update('qrContent', e.target.value)}
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* CỘT PHẢI: MÔ PHỎNG LIVE PREVIEW CUỘN GIẤY IN NHIỆT */}
+        <div style={{
+          width: config.paperSize === 'k58' ? 270 : 340,
+          flexShrink: 0,
+          position: 'sticky',
+          top: 16,
+        }}>
+          <div style={{
+            background: '#fff',
+            borderRadius: 8,
+            border: '1px solid #cbd5e1',
+            boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+            overflow: 'hidden',
+          }}>
+            {/* Header thanh cuộn giấy */}
+            <div style={{
+              background: '#f1f5f9',
+              padding: '10px 14px',
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
+                👁️ Xem trước ({config.paperSize === 'k58' ? 'K58 · 58mm' : 'K80 · 80mm'})
+              </span>
+              <span style={{
+                fontSize: 11,
+                fontWeight: 600,
+                background: '#0284c7',
+                color: '#fff',
+                padding: '2px 8px',
+                borderRadius: 10,
+              }}>
+                Live
+              </span>
+            </div>
+
+            {/* Iframe render trực tiếp đúng chuẩn in nhiệt */}
+            <iframe
+              title="Thermal Receipt Live Preview"
+              srcDoc={previewHtml}
+              style={{
+                width: '100%',
+                height: 580,
+                border: 'none',
+                display: 'block',
+                background: '#fff',
+              }}
+            />
+
+            {/* Chân cuộn giấy: nút bấm in thử ngay */}
+            <div style={{
+              padding: '10px 14px',
+              background: '#f8fafc',
+              borderTop: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 8,
+            }}>
+              <button
+                type="button"
+                className="btn"
+                style={{ flex: 1, padding: '7px 10px', fontSize: 13, background: '#0284c7', borderColor: '#0284c7' }}
+                onClick={onTestPrint}
+              >
+                🖨 In thử mẫu này
+              </button>
+              <button
+                type="button"
+                className="btn"
+                style={{ flex: 1, padding: '7px 10px', fontSize: 13 }}
+                disabled={saving}
+                onClick={onSave}
+              >
+                💾 {saving ? 'Đang lưu…' : 'Lưu lại'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Body({ can }) {
   const { t } = useI18n();
   const { user } = useAuth();
@@ -2053,12 +2795,22 @@ function Body({ can }) {
           <button type="button" className={tab === 'backup' ? 'on' : ''} onClick={() => setTab('backup')}>
             💾 Sao lưu & Phục hồi công ty
           </button>
+          <button type="button" className={tab === 'receipt' ? 'on' : ''} onClick={() => setTab('receipt')}>
+            🧾 {t('admin.receiptTab')}
+          </button>
+          <button type="button" className={tab === 'audit' ? 'on' : ''} onClick={() => setTab('audit')}>
+            📜 {t('admin.auditTab')}
+          </button>
           <button type="button" className={tab === 'settings' ? 'on' : ''} onClick={() => setTab('settings')}>
             ⚙️ {t('admin.settingsTab')}
           </button>
         </div>
         {tab === 'backup' ? (
           <OwnerCompanyBackup />
+        ) : tab === 'receipt' ? (
+          <ThermalReceiptDesigner can={can} />
+        ) : tab === 'audit' ? (
+          <AuditLogView can={can} />
         ) : tab === 'settings' ? (
           <SystemSettings can={can} />
         ) : (
@@ -2084,6 +2836,12 @@ function Body({ can }) {
         <button type="button" className={tab === 'truncate' ? 'on' : ''} onClick={() => setTab('truncate')}>
           🧹 {t('admin.truncateTab')}
         </button>
+        <button type="button" className={tab === 'receipt' ? 'on' : ''} onClick={() => setTab('receipt')}>
+          🧾 {t('admin.receiptTab')}
+        </button>
+        <button type="button" className={tab === 'audit' ? 'on' : ''} onClick={() => setTab('audit')}>
+          📜 {t('admin.auditTab')}
+        </button>
         <button type="button" className={tab === 'settings' ? 'on' : ''} onClick={() => setTab('settings')}>
           ⚙️ {t('admin.settingsTab')}
         </button>
@@ -2096,6 +2854,10 @@ function Body({ can }) {
         <Companies can={can} onOpenTruncate={openTruncateFor} />
       ) : tab === 'truncate' ? (
         <VoucherTruncate can={can} initialCompanyId={truncateCoId} />
+      ) : tab === 'receipt' ? (
+        <ThermalReceiptDesigner can={can} />
+      ) : tab === 'audit' ? (
+        <AuditLogView can={can} />
       ) : (
         <SystemSettings can={can} />
       )}

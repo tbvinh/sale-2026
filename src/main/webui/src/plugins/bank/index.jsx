@@ -5,7 +5,7 @@ import { useConfirm } from '../../core/confirm.jsx';
 import { useDebounced } from '../../core/useDebounced.js';
 import { useAsyncQuery } from '../../core/useasyncquery.js';
 import { bankApi } from '../../api/bankApi.js';
-import { banksStore, accountsStore, partnersStore, vnd } from '../../core/masterdata.js';
+import { banksStore, accountsStore, partnersStore, vnd, formatDate } from '../../core/masterdata.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const firstOfMonth = () => today().slice(0, 8) + '01';
@@ -368,7 +368,7 @@ function VoucherView({ kind, state, setState, can }) {
           {items.map((v) => (
             <tr key={v.id}>
               <td>{v.code}</td>
-              <td>{v.date}</td>
+              <td>{formatDate(v.date)}</td>
               <td>
                 {v.type === 'transfer'
                   ? `${bankName(v.bankId)} → ${bankName(v.toBankId)}`
@@ -512,7 +512,7 @@ function BankLedger({ state, setState }) {
           </tr>
           {rows.map((r) => (
             <tr key={r.id}>
-              <td>{r.date}</td>
+              <td>{formatDate(r.date)}</td>
               <td>{r.no}</td>
               <td>{r.name}{counterpart(r)}</td>
               <td>{r.partnerName || ''}</td>

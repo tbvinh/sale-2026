@@ -23,7 +23,7 @@ public class MaterialResource extends MasterResource<Material> {
     // Join loại vật tư để sắp xếp theo tên loại (sort=typeName)
     @Override protected String from() { return "from Material e left join MaterialType t on t.id = e.typeId"; }
     @Override protected Map<String, String> sortable() {
-        return Map.of("code", "e.code", "name", "e.name", "unit", "e.unit", "price", "e.price", "typeName", "t.name");
+        return Map.of("code", "e.code", "name", "e.name", "unit", "e.unit", "price", "e.price", "typeName", "t.name", "kind", "e.kind");
     }
     @Override protected void applyFilters(MultivaluedMap<String, String> f, Where w) {
         String type = first(f, "typeId");
@@ -32,9 +32,12 @@ public class MaterialResource extends MasterResource<Material> {
         if (min != null) w.and("e.price >= :pmin", "pmin", Long.parseLong(min));
         String max = first(f, "priceMax");
         if (max != null) w.and("e.price <= :pmax", "pmax", Long.parseLong(max));
+        String kind = first(f, "kind");
+        if (kind != null && !kind.isBlank()) w.and("e.kind = :kind", "kind", kind);
     }
     @Override protected void normalize(Material m) {
         if (m.typeId != null && m.typeId.isBlank()) m.typeId = null;    // <select> "--" gửi chuỗi rỗng
         if (m.unit != null && m.unit.isBlank()) m.unit = null;
+        if (m.kind == null || m.kind.isBlank()) m.kind = "material";
     }
 }

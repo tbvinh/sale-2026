@@ -7,12 +7,14 @@ import { useConfirm } from '../../core/confirm.jsx';
 import { inventoryApi } from '../../api/inventoryApi.js';   // FE-ST8: một nguồn API cho domain kho
 import { cashApi } from '../../api/cashApi.js';
 import { settingsApi } from '../../api/settingsApi.js';
-import { printVoucher } from './voucher.js';
+import { printVoucher, printThermalReceipt } from './voucher.js';
+import { SalesFormView } from './SalesFormView.jsx';
+import ProductTagPrintModal from '../../core/ProductTagPrintModal.jsx';
 import { ArrowDownToLine, ArrowRightLeft, BarChart3, BookOpen, FileText, Receipt, Truck } from '../../core/icons.jsx';
 import { useDebounced } from '../../core/useDebounced.js';
 import { useAsyncQuery } from '../../core/useasyncquery.js';
 
-import { suppliersStore, customersStore, warehousesStore, banksStore, materialsStore, searchSuppliers, searchCustomers, searchWarehouses, searchBanks, searchMaterials, vnd, registerReset } from '../../core/masterdata.js';
+import { suppliersStore, customersStore, warehousesStore, banksStore, materialsStore, searchSuppliers, searchCustomers, searchWarehouses, searchBanks, searchMaterials, vnd, formatDate, registerReset } from '../../core/masterdata.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const firstOfMonth = () => today().slice(0, 8) + '01';
@@ -128,7 +130,7 @@ async function requestDeleteDoc({ doc, t, confirm, onOpenPromptModal, onSuccess 
   }
 
   const voucherTypeName = linkedVoucher.type === 'receipt' ? 'Phiếu thu' : 'Phiếu chi';
-  const voucherInfo = `${voucherTypeName} ${linkedVoucher.no || ''} (${vnd(linkedVoucher.amount || 0)})`;
+  const voucherInfo = `${voucherTypeName} ${linkedVoucher.code || linkedVoucher.no || ''} (${vnd(linkedVoucher.amount || 0)})`;
 
   if (policy === 'block') {
     alert(t('inv.deleteBlockedNotice').replace('{name}', doc.no).replace('{linked}', voucherInfo));
@@ -190,6 +192,11 @@ const messages = {
     'inv.bank': 'Ngân hàng thanh toán', 'inv.searchBank': 'Gõ để tìm ngân hàng…', 'inv.newSupplier': 'nhà cung cấp', 'inv.newCustomer': 'khách hàng', 'inv.newMaterial': 'vật tư', 'inv.newBank': 'ngân hàng',
     'inv.warehouseIn': 'Kho nhập', 'inv.warehouseOut': 'Kho xuất', 'inv.searchWarehouse': 'Gõ để tìm kho…', 'inv.newWarehouse': 'kho',
     'inv.searchPartner': 'Gõ để tìm…', 'inv.searchProduct': 'Gõ để tìm sản phẩm…', 'inv.newImport': 'Phiếu nhập mới', 'inv.newExport': 'Phiếu xuất mới', 'inv.newReturn': 'Phiếu trả mới', 'inv.newTransfer': 'Phiếu điều chuyển', 'inv.newGroup': 'Tạo phiếu',
+    'inv.newSales': 'Xuất bán hàng', 'inv.salesPos': 'Bán hàng (Đơn giản)', 'inv.scanBarcode': 'Nhập mã hàng, quét mã vạch (F3) hoặc tìm tên sản phẩm…',
+    'inv.scanAddHint': 'Dùng phím mũi tên ↑ ↓ để chọn, nhấn Enter để thêm', 'inv.itemCount': 'Số mặt hàng', 'inv.totalQty': 'Tổng số lượng',
+    'inv.saveAndPrint': 'Lưu & In', 'inv.instantCashReceipt': 'Thu tiền ngay (Phiếu thu tiền mặt)',
+    'inv.simpleMode': 'Chế độ đơn giản', 'inv.standardMode': 'Chế độ chuẩn',
+    'inv.switchSimpleMode': 'Chế độ đơn giản', 'inv.switchStandardMode': 'Chế độ chuẩn', 'inv.voucherSalesExport': 'PHIẾU XUẤT BÁN HÀNG',
     'inv.search': 'Tìm theo số phiếu, đối tác, ghi chú…', 'inv.clear': 'Xóa bộ lọc', 'inv.noResult': 'Không có kết quả phù hợp.',
     'inv.range': 'Hiển thị {from}–{to} / {total}', 'inv.dateFrom': 'Từ ngày', 'inv.dateTo': 'Đến ngày',
     'inv.perPage': 'Dòng/trang', 'inv.pageOf': 'Trang {p} / {n}', 'inv.first': 'Trang đầu', 'inv.prev': 'Trang trước', 'inv.next': 'Trang sau', 'inv.last': 'Trang cuối',
@@ -204,6 +211,12 @@ const messages = {
     'inv.openReceipt': 'Xem phiếu thu',
     'inv.receiptCreated': 'Đã tạo phiếu thu tiền mặt',
     'inv.receiptCreateFailed': 'Lưu phiếu xuất thành công nhưng không tạo được phiếu thu',
+    'inv.createPaymentOnSave': 'Tạo phiếu chi tiền mặt ngay (Mua hàng trả tiền ngay)',
+    'inv.createPaymentHint': 'Hệ thống sẽ tự động tạo một phiếu chi tiền mặt liên kết trực tiếp với phiếu nhập kho này.',
+    'inv.linkedPayment': 'Phiếu chi liên kết',
+    'inv.openPayment': 'Xem phiếu chi',
+    'inv.paymentCreated': 'Đã tạo phiếu chi tiền mặt',
+    'inv.paymentCreateFailed': 'Lưu phiếu nhập thành công nhưng không tạo được phiếu chi',
     'inv.deleteBlockedNotice': 'Phiếu kho "{name}" đang có chứng từ liên kết: {linked}.\n\nHệ thống đang thiết lập CHẶN xóa khi còn chứng từ liên kết. Vui lòng hủy chứng từ liên kết trước khi xóa phiếu kho.',
     'inv.confirmDeleteCascade': 'Phiếu kho "{name}" đang có chứng từ liên kết: {linked}.\n\nHệ thống đang thiết lập TỰ ĐỘNG HỦY chứng từ liên kết khi xóa. Bạn có chắc chắn muốn xóa không?',
     'inv.deletePromptTitle': 'Xác nhận xóa phiếu kho có chứng từ liên kết',
@@ -216,7 +229,7 @@ const messages = {
     'inv.stt': 'STT',
     'inv.voucherImport': 'PHIẾU NHẬP KHO', 'inv.voucherExport': 'PHIẾU XUẤT KHO',
     'inv.voucherTransfer': 'PHIẾU ĐIỀU CHUYỂN KHO', 'inv.voucherReturn': 'PHIẾU TRẢ HÀNG',
-    'inv.voucherCompany': 'CÔNG TY KẾ TOÁN', 'inv.voucherAddress': 'Địa chỉ: ...................................',
+    'inv.voucherCompany': 'CÔNG TY PM BÁN HÀNG', 'inv.voucherAddress': 'Địa chỉ: ...................................',
     'inv.voucherPhone': 'Điện thoại: ...............................',
     'inv.voucherAddressLabel': 'Địa chỉ', 'inv.voucherTax': 'Mã số thuế', 'inv.voucherPhoneLabel': 'Điện thoại',
     'inv.voucherForm': 'Mẫu số {no}', 'inv.voucherFormRef': '(Ban hành theo TT 200/2014/TT-BTC)',
@@ -235,7 +248,13 @@ const messages = {
     'inv.balanceQty': 'Tồn sau (SL)', 'inv.balanceValue': 'Tồn sau (GT)',
     'inv.revenue': 'Doanh thu', 'inv.cost': 'Giá vốn', 'inv.profit': 'Lãi gộp',
     'inv.reportEmpty': 'Không có dữ liệu trong khoảng ngày đã chọn.',
-    'inv.reportSearch': 'Tìm theo mã hoặc tên hàng…' },
+    'inv.allWarehouses': 'Tất cả các kho', 'inv.warehouse': 'Kho',
+    'inv.warehouseSummary': 'Tổng hợp theo từng kho',
+    'inv.viewDetailByWarehouse': 'Chi tiết theo từng kho',
+    'inv.viewConsolidated': 'Gộp theo vật tư (toàn công ty)',
+    'inv.reportSearch': 'Tìm theo mã hoặc tên hàng…',
+    'inv.thisMonth': 'Tháng này', 'inv.thisYear': 'Năm nay', 'inv.allTime': 'Tất cả',
+    'inv.viewMaterialLedger': 'Xem sổ chi tiết vật tư' },
   en: { 'inv.importFile': 'Import', 'inv.importTitle': 'Import documents from CSV', 'inv.importTemplate': 'Download template', 'inv.close': 'Close',
     'inv.importHint': 'CSV file (UTF-8, separated by , or ;). Each row is one line item; rows sharing the same "ref" belong to one document. Required columns: type (import/export/return), partner, product, qty. Missing partners/products/banks are created in Master Data if you have permission.',
     'inv.importBusy': 'Importing…', 'inv.importDone': 'Imported {n} documents.', 'inv.importErrors': '{n} errors (failed documents were skipped):',
@@ -254,6 +273,11 @@ const messages = {
     'inv.bank': 'Payment bank', 'inv.searchBank': 'Type to search banks…', 'inv.newSupplier': 'supplier', 'inv.newCustomer': 'customer', 'inv.newMaterial': 'material', 'inv.newBank': 'bank',
     'inv.warehouseIn': 'Stock-in warehouse', 'inv.warehouseOut': 'Stock-out warehouse', 'inv.searchWarehouse': 'Type to search warehouses…', 'inv.newWarehouse': 'warehouse',
     'inv.searchPartner': 'Type to search…', 'inv.searchProduct': 'Type to search products…', 'inv.newImport': 'New stock-in', 'inv.newExport': 'New stock-out', 'inv.newReturn': 'New return', 'inv.newTransfer': 'New transfer', 'inv.newGroup': 'New document',
+    'inv.newSales': 'Sales export', 'inv.salesPos': 'Sales (Simple)', 'inv.scanBarcode': 'Enter SKU, scan barcode (F3) or search name…',
+    'inv.scanAddHint': 'Use arrow keys ↑ ↓ to navigate, press Enter to add', 'inv.itemCount': 'Item count', 'inv.totalQty': 'Total quantity',
+    'inv.saveAndPrint': 'Save & Print', 'inv.instantCashReceipt': 'Instant cash receipt',
+    'inv.simpleMode': 'Simple Mode', 'inv.standardMode': 'Standard Mode',
+    'inv.switchSimpleMode': 'Simple Mode', 'inv.switchStandardMode': 'Standard Mode', 'inv.voucherSalesExport': 'SALES DELIVERY SLIP',
     'inv.search': 'Search by number, partner, note…', 'inv.clear': 'Clear filters', 'inv.noResult': 'No matching results.',
     'inv.range': 'Showing {from}–{to} of {total}', 'inv.dateFrom': 'From date', 'inv.dateTo': 'To date',
     'inv.perPage': 'Rows/page', 'inv.pageOf': 'Page {p} / {n}', 'inv.first': 'First page', 'inv.prev': 'Previous page', 'inv.next': 'Next page', 'inv.last': 'Last page',
@@ -268,6 +292,12 @@ const messages = {
     'inv.openReceipt': 'View cash receipt',
     'inv.receiptCreated': 'Cash receipt created successfully',
     'inv.receiptCreateFailed': 'Export doc saved, but failed to create cash receipt',
+    'inv.createPaymentOnSave': 'Create cash payment immediately (Instant cash purchase)',
+    'inv.createPaymentHint': 'The system will automatically create a cash payment linked directly to this import doc.',
+    'inv.linkedPayment': 'Linked cash payment',
+    'inv.openPayment': 'View cash payment',
+    'inv.paymentCreated': 'Cash payment created successfully',
+    'inv.paymentCreateFailed': 'Import doc saved, but failed to create cash payment',
     'inv.deleteBlockedNotice': 'Document "{name}" has linked cash voucher: {linked}.\n\nSystem policy is set to BLOCK deletion while linked vouchers exist. Please cancel the linked voucher first.',
     'inv.confirmDeleteCascade': 'Document "{name}" has linked cash voucher: {linked}.\n\nSystem policy is set to CASCADE cancel linked vouchers. Are you sure you want to delete?',
     'inv.deletePromptTitle': 'Delete Document with Linked Voucher',
@@ -299,7 +329,13 @@ const messages = {
     'inv.balanceQty': 'Balance qty', 'inv.balanceValue': 'Balance value',
     'inv.revenue': 'Revenue', 'inv.cost': 'COGS', 'inv.profit': 'Gross profit',
     'inv.reportEmpty': 'No data in the selected range.',
-    'inv.reportSearch': 'Search by item code or name…' },
+    'inv.allWarehouses': 'All warehouses', 'inv.warehouse': 'Warehouse',
+    'inv.warehouseSummary': 'Summary by warehouse',
+    'inv.viewDetailByWarehouse': 'Detail by warehouse',
+    'inv.viewConsolidated': 'Consolidated by material',
+    'inv.reportSearch': 'Search by item code or name…',
+    'inv.thisMonth': 'This month', 'inv.thisYear': 'This year', 'inv.allTime': 'All time',
+    'inv.viewMaterialLedger': 'View material ledger' },
 };
 
 /* ---------- Tìm kiếm / lọc / sắp xếp / phân trang: SERVER (xem InvDocResource.list) ---------- */
@@ -363,6 +399,10 @@ const CSS = `
 .mi-summary { color: #be123c; background: #ffe4ea; }
 .mi-sales { color: #126b34; background: #e3f7e9; }
 .mi-cost { color: #8a5406; background: #fff5d6; }
+.repseg { display: inline-flex; border: 1px solid var(--border, #d0d5dd); border-radius: 6px; overflow: hidden; }
+.repseg .tb { border-radius: 0; border: none; border-right: 1px solid var(--border, #d0d5dd); font-size: 13px; padding: 4px 10px; }
+.repseg .tb:last-child { border-right: none; }
+.repseg .tb.on { background: var(--accent, #0f6cbd); color: #fff; }
 `;
 
 /* ---------- Giao diện ---------- */
@@ -401,10 +441,11 @@ function Menu({ state, setState }) {
 // C: tạo phiếu Nhập/Xuất/Trả · R: xem danh sách + chi tiết · U/D: sửa/xóa trên danh sách hoặc trong form
 const ribbon = ({ setState, can }) => ({
   tabs: [{ id: 'inventory', title: 'inv.title', groups: [{ id: 'new', title: 'inv.newGroup', items: [
-    { id: 'new-import', icon: '📥', label: 'inv.newImport', disabled: !can('inventory', 'create'), onClick: () => setState({ mode: 'form', editing: blankDoc('import') }) },
-    { id: 'new-export', icon: '📤', label: 'inv.newExport', disabled: !can('inventory', 'create'), onClick: () => setState({ mode: 'form', editing: blankDoc('export') }) },
-    { id: 'new-return', icon: '↩️', label: 'inv.newReturn', disabled: !can('inventory', 'create'), onClick: () => setState({ mode: 'form', editing: blankDoc('return') }) },
-    { id: 'new-transfer', icon: '🔁', label: 'inv.newTransfer', disabled: !can('inventory', 'create'), onClick: () => setState({ mode: 'form', editing: blankDoc('transfer') }) },
+    { id: 'new-sales', icon: '🛒', label: 'inv.newSales', disabled: !can('inventory', 'create'), onClick: () => setState({ mode: 'form', formStyle: 'pos', editing: { ...blankDoc('export'), isSales: true } }) },
+    { id: 'new-export', icon: '📤', label: 'inv.newExport', disabled: !can('inventory', 'create'), onClick: () => setState({ mode: 'form', formStyle: 'standard', editing: blankDoc('export') }) },
+    { id: 'new-import', icon: '📥', label: 'inv.newImport', disabled: !can('inventory', 'create'), onClick: () => setState({ mode: 'form', formStyle: 'standard', editing: blankDoc('import') }) },
+    { id: 'new-return', icon: '↩️', label: 'inv.newReturn', disabled: !can('inventory', 'create'), onClick: () => setState({ mode: 'form', formStyle: 'standard', editing: blankDoc('return') }) },
+    { id: 'new-transfer', icon: '🔁', label: 'inv.newTransfer', disabled: !can('inventory', 'create'), onClick: () => setState({ mode: 'form', formStyle: 'standard', editing: blankDoc('transfer') }) },
     { id: 'import-file', icon: '📂', label: 'inv.importFile', disabled: !can('inventory', 'import'), onClick: () => setState({ mode: 'list', editing: null, importing: true }) },
   ] }] }],
 });
@@ -622,7 +663,7 @@ function Pager({ page, totalPages, pageSize, setState, t }) {
   );
 }
 
-function ListView({ state, setState, docs, total, can, t, error, loading, onDeletePrompt }) {
+function ListView({ state, setState, docs, total, can, t, error, loading, onDeletePrompt, onPrintTags }) {
   const confirm = useConfirm();
   const [imp, setImp] = useState({ busy: false, result: null, key: 0 });
   const q = state.q ?? '';
@@ -746,13 +787,6 @@ function ListView({ state, setState, docs, total, can, t, error, loading, onDele
 
   return (
     <div className="pad">
-      <div className="ghead">
-        <h2>{t('inv.title')}</h2>
-        {can('inventory', 'import') && (
-          <button className="tb" onClick={() => setState({ importing: !state.importing }, { replace: true })}>📂 {t('inv.importFile')}</button>
-        )}
-      </div>
-
       {state.importing && can('inventory', 'import') && (
         <div className="importbox">
           <div className="importhead">
@@ -788,10 +822,13 @@ function ListView({ state, setState, docs, total, can, t, error, loading, onDele
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {can('inventory', 'create') && (
             <>
-              <button type="button" className="btn" onClick={() => setState({ mode: 'form', editing: blankDoc('export') })}>
+              <button type="button" className="btn" style={{ background: '#059669', borderColor: '#059669' }} onClick={() => setState({ mode: 'form', formStyle: 'pos', editing: { ...blankDoc('export'), isSales: true } })}>
+                🛒 {t('inv.newSales')}
+              </button>
+              <button type="button" className="btn" onClick={() => setState({ mode: 'form', formStyle: 'standard', editing: blankDoc('export') })}>
                 ➕ {t('inv.newExport')}
               </button>
-              <button type="button" className="btn" style={{ background: '#0284c7' }} onClick={() => setState({ mode: 'form', editing: blankDoc('import') })}>
+              <button type="button" className="btn" style={{ background: '#0284c7' }} onClick={() => setState({ mode: 'form', formStyle: 'standard', editing: blankDoc('import') })}>
                 ➕ {t('inv.newImport')}
               </button>
               <button type="button" className="tb" onClick={() => setState({ mode: 'form', editing: blankDoc('transfer') })}>
@@ -852,8 +889,33 @@ function ListView({ state, setState, docs, total, can, t, error, loading, onDele
                   <input type="checkbox" checked={selSet.has(d.id)} onChange={() => toggleOne(d.id)} aria-label={t('inv.selectRow') + ' ' + d.no} />
                 </td>
               )}
-              <td>{d.no}</td><td>{t('inv.' + d.type)}</td><td>{d.partner?.name}</td><td>{d.date}</td><td>{vnd(lineTotal(d.lines))}</td>
+              <td>{d.no}</td><td>{t('inv.' + d.type)}</td><td>{d.partner?.name}</td><td>{formatDate(d.date)}</td><td>{vnd(lineTotal(d.lines))}</td>
               <td className="acts" style={{ whiteSpace: 'nowrap' }}>
+                {d.type === 'export' && (
+                  <button type="button" className="tb" style={{ padding: '3px 8px', fontSize: 13, marginRight: 4, fontWeight: 600, color: '#0284c7' }} title="In nhiệt K80/K58" onClick={() => printThermalReceipt(d, t)}>🧾 In nhiệt</button>
+                )}
+                {(d.lines || []).some((l) => l.product?.name || l.product?.code) && (
+                  <button
+                    type="button"
+                    className="tb"
+                    style={{ padding: '3px 8px', fontSize: 13, marginRight: 4 }}
+                    title="In tem nhãn mã vạch + QR"
+                    onClick={() => {
+                      const items = (d.lines || [])
+                        .filter((l) => l.product?.name || l.product?.code)
+                        .map((l) => ({
+                          id: l.product?.id || l.productId || Math.random(),
+                          code: l.product?.code || '',
+                          name: l.product?.name || '',
+                          price: Number(l.price) || Number(l.product?.price) || 0,
+                          qty: Math.max(1, Math.round(Number(l.qty) || 1)),
+                        }));
+                      onPrintTags && onPrintTags(items);
+                    }}
+                  >
+                    🏷️ In tem
+                  </button>
+                )}
                 <button type="button" className="tb" style={{ padding: '3px 8px', fontSize: 13, marginRight: 4 }} title={t('inv.print')} onClick={() => printVoucher(d, t)}>🖨 {t('inv.print')}</button>
                 <button type="button" className="tb" style={{ padding: '3px 8px', fontSize: 13, marginRight: 4 }} title={t('inv.edit')} onClick={() => setState({ mode: 'form', editing: d })}>✏️ {t('inv.edit')}</button>
                 {can('inventory', 'delete') && (
@@ -875,7 +937,7 @@ function ListView({ state, setState, docs, total, can, t, error, loading, onDele
 
 // Form master-detail: master = loại phiếu + đối tác (autocomplete) + ngày + ghi chú
 // detail = danh sách dòng hàng, mỗi dòng chọn sản phẩm bằng autocomplete (tự điền đơn giá)
-function FormView({ state, setState, can, t, bus, onDeletePrompt }) {
+function FormView({ state, setState, can, t, bus, onDeletePrompt, onPrintTags }) {
   const confirm = useConfirm();
   const editing = state.editing;
   const isNew = !editing.id;
@@ -887,7 +949,7 @@ function FormView({ state, setState, can, t, bus, onDeletePrompt }) {
   const update = (patch) => setState({ editing: { ...editing, ...patch } }, { replace: true });
 
   const [linkedVoucher, setLinkedVoucher] = useState(null);
-  const [createReceipt, setCreateReceipt] = useState(false);
+  const [createVoucher, setCreateVoucher] = useState(false);
 
   useEffect(() => {
     if (!editing.id) {
@@ -933,7 +995,7 @@ function FormView({ state, setState, can, t, bus, onDeletePrompt }) {
     update({ lines: next });
   };
   const endDrag = () => setDrag({ from: null, over: null });
-  const summary = [t('inv.' + editing.type), editing.partner?.name, editing.warehouseIn?.name, editing.warehouseOut?.name, editing.bank?.name, editing.date, editing.note].filter(Boolean).join(' · ');
+  const summary = [t('inv.' + editing.type), editing.partner?.name, editing.warehouseIn?.name, editing.warehouseOut?.name, editing.bank?.name, formatDate(editing.date), editing.note].filter(Boolean).join(' · ');
 
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -957,7 +1019,7 @@ function FormView({ state, setState, can, t, bus, onDeletePrompt }) {
     try {
       const saved = await saveDoc(editing);
       const docId = saved?.id || editing.id;
-      if (editing.type === 'export' && createReceipt && docId && !linkedVoucher) {
+      if (editing.type === 'export' && createVoucher && docId && !linkedVoucher) {
         try {
           const createdVoucher = await cashApi.fromInventory(docId);
           if (createdVoucher?.code) {
@@ -965,6 +1027,15 @@ function FormView({ state, setState, can, t, bus, onDeletePrompt }) {
           }
         } catch (err) {
           alert((t('inv.receiptCreateFailed') || 'Không thể tạo phiếu thu') + ': ' + (err?.message ?? err));
+        }
+      } else if (editing.type === 'import' && createVoucher && docId && !linkedVoucher) {
+        try {
+          const createdVoucher = await cashApi.fromInventory(docId);
+          if (createdVoucher?.code) {
+            alert(t('inv.paymentCreated') + ': ' + createdVoucher.code);
+          }
+        } catch (err) {
+          alert((t('inv.paymentCreateFailed') || 'Không thể tạo phiếu chi') + ': ' + (err?.message ?? err));
         }
       }
       // Phiếu mới: bỏ tìm kiếm/lọc/sắp xếp/trang để phiếu vừa tạo hiện ngay ở đầu danh sách.
@@ -993,6 +1064,32 @@ function FormView({ state, setState, can, t, bus, onDeletePrompt }) {
       <div className="ghead">
         <h2>{isNew ? t('inv.new' + editing.type[0].toUpperCase() + editing.type.slice(1)) : editing.no}</h2>
         <div>
+          {editing.type === 'export' && (
+            <button className="tb" title="Chuyển sang chế độ đơn giản" onClick={() => setState({ formStyle: 'pos' })}>
+              ⚡ {t('inv.switchSimpleMode') || 'Chế độ đơn giản'}
+            </button>
+          )}{' '}
+          {(editing.lines || []).some((l) => l.product?.name || l.product?.code) && (
+            <button
+              type="button"
+              className="tb"
+              title="In tem nhãn mã vạch + QR"
+              onClick={() => {
+                const items = (editing.lines || [])
+                  .filter((l) => l.product?.name || l.product?.code)
+                  .map((l) => ({
+                    id: l.product?.id || l.productId || Math.random(),
+                    code: l.product?.code || '',
+                    name: l.product?.name || '',
+                    price: Number(l.price) || Number(l.product?.price) || 0,
+                    qty: Math.max(1, Math.round(Number(l.qty) || 1)),
+                  }));
+                onPrintTags && onPrintTags(items);
+              }}
+            >
+              🏷️ In tem sp
+            </button>
+          )}{' '}
           <button className="tb" onClick={() => printVoucher(editing, t)}>🖨 {t('inv.print')}</button>{' '}
           {!isNew && can('inventory', 'export') && <button className="tb" disabled={exporting} onClick={onExportExcel}>⬇ {t('inv.exportExcel')}</button>}{' '}
           <button className="tb" onClick={() => setState({ mode: 'list', editing: null })}>← {t('inv.back')}</button>
@@ -1085,22 +1182,23 @@ function FormView({ state, setState, can, t, bus, onDeletePrompt }) {
       </table>
       <button className="tb" onClick={addLine}>➕ {t('inv.addLine')}</button>
 
-      {editing.type === 'export' && (
+      {(editing.type === 'export' || editing.type === 'import') && (
         linkedVoucher ? (
           <div style={{ margin: '14px 0', padding: '10px 14px', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 18 }}>💵</span>
+              <span style={{ fontSize: 18 }}>{editing.type === 'import' ? '💸' : '💵'}</span>
               <span>
-                <b>{t('inv.linkedReceipt')}:</b> <span style={{ color: '#047857', fontWeight: 600 }}>{linkedVoucher.code}</span>
-                {' — '}{vnd(linkedVoucher.amount)} ({linkedVoucher.date})
+                <b>{t(editing.type === 'import' ? 'inv.linkedPayment' : 'inv.linkedReceipt')}:</b>{' '}
+                <span style={{ color: '#047857', fontWeight: 600 }}>{linkedVoucher.code}</span>
+                {' — '}{vnd(linkedVoucher.amount)} ({formatDate(linkedVoucher.date)})
               </span>
             </div>
             <button
               type="button"
               className="tb"
               style={{ background: '#fff', border: '1px solid #059669', color: '#059669', fontWeight: 500 }}
-              onClick={() => bus?.emit('navigate', { pluginId: 'cash', state: { kind: 'receipt', q: linkedVoucher.code } })}>
-              🔗 {t('inv.openReceipt')}
+              onClick={() => bus?.emit('navigate', { pluginId: 'cash', state: { kind: linkedVoucher.type || (editing.type === 'import' ? 'payment' : 'receipt'), q: linkedVoucher.code } })}>
+              🔗 {t(editing.type === 'import' ? 'inv.openPayment' : 'inv.openReceipt')}
             </button>
           </div>
         ) : (
@@ -1108,15 +1206,15 @@ function FormView({ state, setState, can, t, bus, onDeletePrompt }) {
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 600, color: '#0f172a', margin: 0 }}>
               <input
                 type="checkbox"
-                checked={createReceipt}
-                onChange={(e) => setCreateReceipt(e.target.checked)}
+                checked={createVoucher}
+                onChange={(e) => setCreateVoucher(e.target.checked)}
                 style={{ width: 17, height: 17, cursor: 'pointer' }}
               />
-              <span>{t('inv.createReceiptOnSave')}</span>
+              <span>{t(editing.type === 'import' ? 'inv.createPaymentOnSave' : 'inv.createReceiptOnSave')}</span>
             </label>
-            {createReceipt && (
+            {createVoucher && (
               <p style={{ margin: '6px 0 0 25px', fontSize: 13, color: '#475569' }}>
-                {t('inv.createReceiptHint')}
+                {t(editing.type === 'import' ? 'inv.createPaymentHint' : 'inv.createReceiptHint')}
               </p>
             )}
           </div>
@@ -1125,6 +1223,27 @@ function FormView({ state, setState, can, t, bus, onDeletePrompt }) {
 
       <div className="formActions">
         <button className="btn" disabled={!savePerm || saving} onClick={doSave}>{saving ? 'Đang lưu…' : t('inv.save')}</button>
+        {(editing.lines || []).some((l) => l.product?.name || l.product?.code) && (
+          <button
+            type="button"
+            className="tb"
+            title="In tem nhãn mã vạch + QR"
+            onClick={() => {
+              const items = (editing.lines || [])
+                .filter((l) => l.product?.name || l.product?.code)
+                .map((l) => ({
+                  id: l.product?.id || l.productId || Math.random(),
+                  code: l.product?.code || '',
+                  name: l.product?.name || '',
+                  price: Number(l.price) || Number(l.product?.price) || 0,
+                  qty: Math.max(1, Math.round(Number(l.qty) || 1)),
+                }));
+              onPrintTags && onPrintTags(items);
+            }}
+          >
+            🏷️ In tem sp
+          </button>
+        )}
         <button type="button" className="tb" onClick={() => printVoucher(editing, t)}>🖨 {t('inv.print')}</button>
         {!isNew && can('inventory', 'delete') && <button type="button" className="tb" style={{ color: '#dc2626' }} onClick={doDelete}>🗑 {t('inv.delete')}</button>}
         <button type="button" className="tb" onClick={() => setState({ mode: 'list', editing: null })}>← {t('inv.back')}</button>
@@ -1138,6 +1257,12 @@ function FormView({ state, setState, can, t, bus, onDeletePrompt }) {
 const qtyText = (n) => (n == null ? '' : Number(n).toLocaleString('vi-VN'));
 
 function ReportRange({ state, setState, t }) {
+  const setRange = (from, to) => setState({ reportFrom: from, reportTo: to }, { replace: true });
+  const isThisMonth = state.reportFrom === firstOfMonth() && state.reportTo === today();
+  const firstYear = today().slice(0, 4) + '-01-01';
+  const isThisYear = state.reportFrom === firstYear && state.reportTo === today();
+  const isAllTime = state.reportFrom === '2026-01-01' && state.reportTo === today();
+
   return (<>
     <label className="filter">
       <span>{t('inv.dateFrom')}</span>
@@ -1149,44 +1274,113 @@ function ReportRange({ state, setState, t }) {
       <input type="date" value={state.reportTo ?? ''}
         onChange={(e) => setState({ reportTo: e.target.value }, { replace: true })} />
     </label>
+    <div className="repseg" style={{ alignSelf: 'flex-end', height: '32px' }}>
+      <button type="button" className={'tb' + (isThisMonth ? ' on' : '')}
+        onClick={() => setRange(firstOfMonth(), today())} title={t('inv.thisMonth')}>
+        {t('inv.thisMonth')}
+      </button>
+      <button type="button" className={'tb' + (isThisYear ? ' on' : '')}
+        onClick={() => setRange(firstYear, today())} title={t('inv.thisYear')}>
+        {t('inv.thisYear')}
+      </button>
+      <button type="button" className={'tb' + (isAllTime ? ' on' : '')}
+        onClick={() => setRange('2026-01-01', today())} title={t('inv.allTime')}>
+        {t('inv.allTime')}
+      </button>
+    </div>
   </>);
+}
+
+function WarehouseReportFilter({ warehouseId, onChange, warehouses, t }) {
+  const warehouse = warehouses.find((w) => w.id === warehouseId) || null;
+  const allText = t('inv.allWarehouses');
+
+  const fetcher = async (query) => {
+    const list = await searchWarehouses(query);
+    const items = list.map((w) => ({
+      id: w.id,
+      name: w.hint ? `${w.hint} - ${w.name}` : w.name,
+    }));
+    const qNorm = (query ?? '').trim().toLowerCase();
+    if (!qNorm || allText.toLowerCase().includes(qNorm)) {
+      return [{ id: '', name: allText }, ...items];
+    }
+    return items;
+  };
+
+  return (
+    <label className="filter repac">
+      <span>{t('inv.warehouse')}</span>
+      <Autocomplete
+        value={warehouse ? { id: warehouse.id, name: (warehouse.code ? warehouse.code + ' - ' : '') + warehouse.name } : null}
+        onChange={(w) => onChange(w?.id || '')}
+        fetcher={fetcher}
+        placeholder={allText}
+      />
+    </label>
+  );
 }
 
 function MaterialLedgerReport({ state, setState, t }) {
   const materials = materialsStore.use().items;
+  const warehouses = warehousesStore.use().items;
   const material = materials.find((m) => m.id === state.reportMaterialId) || null;
+  const warehouseId = state.reportWarehouseId ?? '';
   const params = {
     materialId: state.reportMaterialId ?? '',
+    warehouseId: warehouseId || undefined,
     dateFrom: state.reportFrom ?? '',
     dateTo: state.reportTo ?? '',
   };
   const { data, fetching, error, reload } = useAsyncQuery(
     'invrep:material:' + JSON.stringify(params),
     () => inventoryApi.materialLedger(params),
-    { enabled: !!params.materialId },
+    { enabled: true },
   );
+
+  // Tự động chọn vật tư đầu tiên hoặc đồng bộ theo vật tư server trả về
+  useEffect(() => {
+    if (!state.reportMaterialId) {
+      if (data?.material?.id) {
+        setState({ reportMaterialId: data.material.id }, { replace: true });
+      } else if (materials.length > 0) {
+        setState({ reportMaterialId: materials[0].id }, { replace: true });
+      }
+    }
+  }, [state.reportMaterialId, data?.material?.id, materials, setState]);
+
   const rows = data?.items ?? [];
+  const activeMaterial = material || (data?.material ? { id: data.material.id, name: (data.material.code ? data.material.code + ' - ' : '') + data.material.name } : null);
 
   return (
     <div className="pad">
       <style>{CSS}</style>
       <div className="ghead">
         <h2>{t('inv.materialLedger')}</h2>
-        <button className="tb" onClick={reload}>⟳ {t('common.refresh')}</button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="tb" onClick={reload}>⟳ {t('common.refresh')}</button>
+          <button className="tb" onClick={() => inventoryApi.exportMaterialLedgerExcel(params)}
+            disabled={fetching} title="Xuất Excel sổ chi tiết">
+            📥 {t('common.exportExcel') || 'Xuất Excel'}
+          </button>
+        </div>
       </div>
 
       <div className="cattools">
         <label className="filter repac">
           <span>{t('inv.materialName')}</span>
-          <Autocomplete value={material ? { id: material.id, name: material.name } : null}
+          <Autocomplete value={activeMaterial ? { id: activeMaterial.id, name: activeMaterial.name } : null}
             onChange={(m) => setState({ reportMaterialId: m?.id ?? '' }, { replace: true })}
             fetcher={searchMaterials} placeholder={t('inv.selectMaterial')} />
         </label>
+        <WarehouseReportFilter warehouseId={warehouseId}
+          onChange={(id) => setState({ reportWarehouseId: id }, { replace: true })}
+          warehouses={warehouses} t={t} />
         <ReportRange state={state} setState={setState} t={t} />
         <span className="catcount">{fetching ? '⏳ ' : ''}{rows.length} {t('inv.lines')}</span>
       </div>
 
-      {!params.materialId && <p className="repnote">{t('inv.materialRequired')}</p>}
+      {!params.materialId && !data?.material && <p className="repnote">{t('inv.materialRequired')}</p>}
       {error && <p className="formError" role="alert">{t('inv.loadFailed')}: {error.message}</p>}
 
       <div className="reportsum">
@@ -1205,6 +1399,7 @@ function MaterialLedgerReport({ state, setState, t }) {
             <th>{t('inv.no')}</th>
             <th>{t('inv.type')}</th>
             <th>{t('inv.partner')}</th>
+            <th>{t('inv.warehouse')}</th>
             <th className="num">{t('inv.qty')}</th>
             <th className="num">{t('inv.price')}</th>
             <th className="num">{t('inv.lineTotal')}</th>
@@ -1214,25 +1409,39 @@ function MaterialLedgerReport({ state, setState, t }) {
         </thead>
         <tbody>
           <tr>
-            <td colSpan={7}><b>{t('inv.openingQty')}</b></td>
+            <td colSpan={8}><b>{t('inv.openingQty')}</b></td>
             <td className="num"><b>{qtyText(data?.openingQty)}</b></td>
             <td className="num"><b>{vnd(data?.openingValue)}</b></td>
           </tr>
-          {rows.map((r, i) => (
-            <tr key={i}>
-              <td>{r.date}</td>
-              <td>{r.no}</td>
-              <td>{t('inv.' + r.type)}</td>
-              <td>{r.partnerName || ''}</td>
-              <td className="num">{qtyText(r.qty)}</td>
-              <td className="num">{vnd(r.price)}</td>
-              <td className="num">{vnd(r.amount)}</td>
-              <td className="num">{qtyText(r.balanceQty)}</td>
-              <td className="num">{vnd(r.balanceValue)}</td>
+          {rows.map((r, i) => {
+            const whDesc = r.type === 'transfer'
+              ? `${r.warehouseOutName || ''} ➔ ${r.warehouseInName || ''}`
+              : (r.type === 'export' ? r.warehouseOutName : r.warehouseInName) || '';
+            return (
+              <tr key={i}>
+                <td>{formatDate(r.date)}</td>
+                <td>{r.no}</td>
+                <td>{t('inv.' + r.type)}</td>
+                <td>{r.partnerName || ''}</td>
+                <td>{whDesc}</td>
+                <td className="num">{qtyText(r.qty)}</td>
+                <td className="num">{vnd(r.price)}</td>
+                <td className="num">{vnd(r.amount)}</td>
+                <td className="num">{qtyText(r.balanceQty)}</td>
+                <td className="num">{vnd(r.balanceValue)}</td>
+              </tr>
+            );
+          })}
+          {!rows.length && !fetching && (
+            <tr>
+              <td colSpan={10} className="empty" style={{ padding: '24px', textAlign: 'center' }}>
+                <div style={{ marginBottom: '8px' }}>{t('inv.reportEmpty')}</div>
+                <button type="button" className="btn" style={{ fontSize: '13px', padding: '6px 14px' }}
+                  onClick={() => setState({ reportFrom: today().slice(0, 4) + '-01-01', reportTo: today() }, { replace: true })}>
+                  📅 Xem phát sinh từ đầu năm ({today().slice(0, 4)})
+                </button>
+              </td>
             </tr>
-          ))}
-          {!rows.length && !fetching && params.materialId && (
-            <tr><td colSpan={9} className="empty">{t('inv.reportEmpty')}</td></tr>
           )}
         </tbody>
       </table>
@@ -1241,16 +1450,30 @@ function MaterialLedgerReport({ state, setState, t }) {
 }
 
 function StockSummaryReport({ state, setState, t }) {
+  const warehouses = warehousesStore.use().items;
   const q = state.reportQ ?? '';
+  const warehouseId = state.reportWarehouseId ?? '';
+  const viewMode = state.reportViewMode ?? 'detail'; // 'detail' | 'consolidated'
   const settledQ = useDebounced(q, 300);
-  const params = { dateFrom: state.reportFrom ?? '', dateTo: state.reportTo ?? '', q: settledQ };
+  const params = {
+    dateFrom: state.reportFrom ?? '',
+    dateTo: state.reportTo ?? '',
+    warehouseId: warehouseId || undefined,
+    q: settledQ,
+  };
   const { data, fetching, error, reload } = useAsyncQuery(
     'invrep:nxt:' + JSON.stringify(params),
     () => inventoryApi.stockSummary(params),
     { enabled: q === settledQ },
   );
-  const rows = data?.items ?? [];
+
+  const isAllWarehouses = !warehouseId;
+  const rawItems = data?.items ?? [];
+  const byProduct = data?.byProduct ?? [];
+  const summaries = data?.warehouseSummaries ?? [];
   const totals = data?.totals ?? {};
+
+  const rows = (isAllWarehouses && viewMode === 'consolidated') ? byProduct : rawItems;
 
   return (
     <div className="pad">
@@ -1268,15 +1491,88 @@ function StockSummaryReport({ state, setState, t }) {
           {q && <button type="button" className="xbtn" title={t('inv.clear')}
             onClick={() => setState({ reportQ: '' }, { replace: true })}>✕</button>}
         </div>
+
+        <WarehouseReportFilter warehouseId={warehouseId}
+          onChange={(id) => setState({ reportWarehouseId: id }, { replace: true })}
+          warehouses={warehouses} t={t} />
+
+        {isAllWarehouses && (
+          <div className="repseg">
+            <button type="button" className={'tb' + (viewMode === 'detail' ? ' on' : '')}
+              onClick={() => setState({ reportViewMode: 'detail' }, { replace: true })}>
+              {t('inv.viewDetailByWarehouse')}
+            </button>
+            <button type="button" className={'tb' + (viewMode === 'consolidated' ? ' on' : '')}
+              onClick={() => setState({ reportViewMode: 'consolidated' }, { replace: true })}>
+              {t('inv.viewConsolidated')}
+            </button>
+          </div>
+        )}
+
         <ReportRange state={state} setState={setState} t={t} />
         <span className="catcount">{fetching ? '⏳ ' : ''}{rows.length} {t('inv.materialName')}</span>
       </div>
 
       {error && <p className="formError" role="alert">{t('inv.loadFailed')}: {error.message}</p>}
 
+      {/* Bảng tổng hợp theo từng kho */}
+      {isAllWarehouses && summaries.length > 0 && (
+        <div style={{ marginBottom: '24px' }}>
+          <h3 style={{ margin: '14px 0 8px 0', fontSize: '15px' }}>📊 {t('inv.warehouseSummary')}</h3>
+          <table className="invtable zebra">
+            <thead>
+              <tr>
+                <th>{t('inv.warehouse')}</th>
+                <th className="num">{t('inv.openingQty')}</th>
+                <th className="num">{t('inv.openingValue')}</th>
+                <th className="num">{t('inv.inQty')}</th>
+                <th className="num">{t('inv.inValue')}</th>
+                <th className="num">{t('inv.outQty')}</th>
+                <th className="num">{t('inv.outValue')}</th>
+                <th className="num">{t('inv.closingQty')}</th>
+                <th className="num">{t('inv.closingValue')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summaries.map((s) => (
+                <tr key={s.warehouseId}>
+                  <td><b>{s.warehouseCode ? s.warehouseCode + ' - ' : ''}{s.warehouseName}</b></td>
+                  <td className="num">{qtyText(s.openingQty)}</td>
+                  <td className="num">{vnd(s.openingValue)}</td>
+                  <td className="num">{qtyText(s.inQty)}</td>
+                  <td className="num">{vnd(s.inValue)}</td>
+                  <td className="num">{qtyText(s.outQty)}</td>
+                  <td className="num">{vnd(s.outValue)}</td>
+                  <td className="num">{qtyText(s.closingQty)}</td>
+                  <td className="num">{vnd(s.closingValue)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td><b>{t('inv.grandTotal')}</b></td>
+                <td className="num"><b>{qtyText(totals.openingQty)}</b></td>
+                <td className="num"><b>{vnd(totals.openingValue)}</b></td>
+                <td className="num"><b>{qtyText(totals.inQty)}</b></td>
+                <td className="num"><b>{vnd(totals.inValue)}</b></td>
+                <td className="num"><b>{qtyText(totals.outQty)}</b></td>
+                <td className="num"><b>{vnd(totals.outValue)}</b></td>
+                <td className="num"><b>{qtyText(totals.closingQty)}</b></td>
+                <td className="num"><b>{vnd(totals.closingValue)}</b></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
+      {/* Bảng chi tiết vật tư */}
+      <h3 style={{ margin: '14px 0 8px 0', fontSize: '15px' }}>
+        📦 {isAllWarehouses ? (viewMode === 'detail' ? t('inv.viewDetailByWarehouse') : t('inv.viewConsolidated')) : t('inv.stockSummary')}
+      </h3>
       <table className="invtable zebra" aria-busy={fetching}>
         <thead>
           <tr>
+            {isAllWarehouses && viewMode === 'detail' && <th>{t('inv.warehouse')}</th>}
             <th>{t('inv.materialCode')}</th>
             <th>{t('inv.materialName')}</th>
             <th>{t('inv.unit')}</th>
@@ -1291,10 +1587,25 @@ function StockSummaryReport({ state, setState, t }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr key={r.productId}>
-              <td>{r.code}</td>
-              <td>{r.name}</td>
+          {rows.map((r, i) => (
+            <tr key={(r.warehouseId ? r.warehouseId + ':' : '') + r.productId + ':' + i}>
+              {isAllWarehouses && viewMode === 'detail' && <td>{r.warehouseName || ''}</td>}
+              <td>
+                <button type="button"
+                  onClick={() => setState({ report: 'material-ledger', reportMaterialId: r.productId, reportWarehouseId: r.warehouseId || '' })}
+                  style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent, #0f6cbd)', cursor: 'pointer', textAlign: 'left', fontWeight: 'bold' }}
+                  title={t('inv.viewMaterialLedger')}>
+                  {r.code}
+                </button>
+              </td>
+              <td>
+                <button type="button"
+                  onClick={() => setState({ report: 'material-ledger', reportMaterialId: r.productId, reportWarehouseId: r.warehouseId || '' })}
+                  style={{ background: 'none', border: 'none', padding: 0, color: 'inherit', cursor: 'pointer', textAlign: 'left', textDecoration: 'underline' }}
+                  title={t('inv.viewMaterialLedger')}>
+                  {r.name}
+                </button>
+              </td>
               <td>{r.unit}</td>
               <td className="num">{qtyText(r.openingQty)}</td>
               <td className="num">{vnd(r.openingValue)}</td>
@@ -1307,12 +1618,12 @@ function StockSummaryReport({ state, setState, t }) {
             </tr>
           ))}
           {!rows.length && !fetching && (
-            <tr><td colSpan={11} className="empty">{t('inv.reportEmpty')}</td></tr>
+            <tr><td colSpan={isAllWarehouses && viewMode === 'detail' ? 12 : 11} className="empty">{t('inv.reportEmpty')}</td></tr>
           )}
         </tbody>
         <tfoot>
           <tr>
-            <td colSpan={3}><b>{t('inv.grandTotal')}</b></td>
+            <td colSpan={isAllWarehouses && viewMode === 'detail' ? 4 : 3}><b>{t('inv.grandTotal')}</b></td>
             <td className="num"><b>{qtyText(totals.openingQty)}</b></td>
             <td className="num"><b>{vnd(totals.openingValue)}</b></td>
             <td className="num"><b>{qtyText(totals.inQty)}</b></td>
@@ -1379,7 +1690,7 @@ function SalesReport({ state, setState, t, withCost }) {
         <tbody>
           {rows.map((r, i) => (
             <tr key={i}>
-              <td>{r.date}</td>
+              <td>{formatDate(r.date)}</td>
               <td>{r.no}</td>
               <td>{r.partnerName || ''}</td>
               <td>{r.productName}</td>
@@ -1423,16 +1734,27 @@ function Body(props) {
   const { t } = useI18n();
   const { docs, total, loading, error } = useDocs();
   const [deletePrompt, setDeletePrompt] = useState(null);
+  const [tagPrintItems, setTagPrintItems] = useState(null);
   // KHÔNG return <Loading /> ở đây: unmount ListView sẽ chạy lại effect tải dữ liệu khi mount
   // (mount → load → unmount → mount → load …) ⇒ vòng lặp request vô hạn khi kết quả rỗng.
   // Spinner được hiển thị bên trong ListView để component luôn được giữ mount.
   return (<>
     <style>{CSS}</style>
     {state.mode === 'form' && state.editing
-      ? <FormView {...props} onDeletePrompt={setDeletePrompt} t={t} />
+      ? (state.formStyle === 'pos' || (state.editing.isSales && state.formStyle !== 'standard')
+          ? <SalesFormView {...props} saveDoc={saveDoc} printVoucher={printVoucher} onDeletePrompt={setDeletePrompt} requestDeleteDoc={requestDeleteDoc} onPrintTags={setTagPrintItems} t={t} />
+          : <FormView {...props} onDeletePrompt={setDeletePrompt} onPrintTags={setTagPrintItems} t={t} />)
       : state.report
         ? <ReportView state={state} setState={props.setState} t={t} />
-        : <ListView {...props} onDeletePrompt={setDeletePrompt} docs={docs} total={total} error={error} loading={loading} t={t} />}
+        : <ListView {...props} onDeletePrompt={setDeletePrompt} onPrintTags={setTagPrintItems} docs={docs} total={total} error={error} loading={loading} t={t} />}
+
+    {tagPrintItems && (
+      <ProductTagPrintModal
+        items={tagPrintItems}
+        onClose={() => setTagPrintItems(null)}
+        t={t}
+      />
+    )}
 
     {deletePrompt && (
       <div className="confirm-backdrop" onMouseDown={() => setDeletePrompt(null)}>

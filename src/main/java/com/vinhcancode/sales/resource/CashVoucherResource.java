@@ -7,6 +7,7 @@ import com.vinhcancode.sales.entity.DmCongTy;
 import com.vinhcancode.sales.entity.InvDoc;
 import com.vinhcancode.sales.entity.Partner;
 import com.vinhcancode.sales.entity.Supplier;
+import com.vinhcancode.sales.entity.Warehouse;
 import com.vinhcancode.sales.service.AmountInWords;
 import com.vinhcancode.sales.service.PermissionService;
 import com.vinhcancode.sales.tenant.TenantContext;
@@ -63,18 +64,23 @@ public class CashVoucherResource {
     @Inject JsonWebToken jwt;
     @Inject PermissionService permissions;
     @Inject TenantContext tenant;
+    @Inject com.vinhcancode.sales.service.AuditService audit;
 
     // ---------- Danh sach phieu ----------
     @GET @Path("/vouchers")
     public Map<String, Object> list(@QueryParam("q") String q,
                                     @QueryParam("type") String type,
+                                    @QueryParam("warehouseId") String warehouseId,
+                                    @QueryParam("shiftId") String shiftId,
                                     @QueryParam("dateFrom") String dateFrom,
                                     @QueryParam("dateTo") String dateTo,
                                     @QueryParam("page") Integer page,
                                     @QueryParam("pageSize") Integer pageSize,
                                     @QueryParam("sort") String sort,
                                     @QueryParam("dir") @DefaultValue("desc") String dir) {
-        permissions.require("cash", "READ");
+        if (!permissions.has("cash", "READ") && !permissions.has("minibar", "READ")) {
+            permissions.require("cash", "READ");
+        }
         StringBuilder where = new StringBuilder(" where v.status <> 'cancelled'");
         Map<String, Object> params = new HashMap<>();
 
@@ -86,6 +92,14 @@ public class CashVoucherResource {
             if (!PREFIX.containsKey(type)) throw MasterResource.bad("Loại phiếu không hợp lệ");
             where.append(" and v.type = :type");
             params.put("type", type);
+        }
+        if (warehouseId != null && !warehouseId.isBlank() && !"all".equalsIgnoreCase(warehouseId)) {
+            where.append(" and (v.warehouseId = :wid or v.sourceDocId in (select d.id from InvDoc d where d.warehouseOut.id = :wid or d.warehouseIn.id = :wid))");
+            params.put("wid", warehouseId);
+        }
+        if (shiftId != null && !shiftId.isBlank() && !"all".equalsIgnoreCase(shiftId)) {
+            where.append(" and v.shiftId = :sid");
+            params.put("sid", shiftId.trim());
         }
         LocalDate from = date(dateFrom);
         LocalDate to = date(dateTo);
@@ -111,7 +125,9 @@ public class CashVoucherResource {
 
     @GET @Path("/vouchers/{id}")
     public Map<String, Object> get(@PathParam("id") String id) {
-        permissions.require("cash", "READ");
+        if (!permissions.has("cash", "READ") && !permissions.has("minibar", "READ")) {
+            permissions.require("cash", "READ");
+        }
         CashVoucher v = em.find(CashVoucher.class, id);
         if (v == null) throw new NotFoundException();
         return detail(v);
@@ -140,6 +156,8 @@ public class CashVoucherResource {
         row.put("fxRate", v.fxRate);
         row.put("sourceDocId", v.sourceDocId);
         row.put("sourceDocNo", v.sourceDocNo);
+        row.put("warehouseId", v.warehouseId);
+        row.put("warehouseName", v.warehouseName);
         row.put("status", v.status);
         row.put("createdBy", v.createdBy);
         row.put("updatedBy", v.updatedBy);
@@ -180,16 +198,21 @@ public class CashVoucherResource {
     // ---------- Them / sua / huy phieu ----------
     @POST @Path("/vouchers") @Transactional
     public Response create(CashVoucher v) {
-        permissions.require("cash", "CREATE");
+        if (!permissions.has("cash", "CREATE") && !permissions.has("minibar", "CREATE")) {
+            permissions.require("cash", "CREATE");
+        }
         v.id = null;
         normalize(v);
         validate(v);
         v.code = nextNo(v.type);
         v.status = "posted";
+        v.createdAt = java.time.OffsetDateTime.now();
+        v.updatedAt = v.createdAt;
         v.createdBy = username();
         v.updatedBy = v.createdBy;
         em.persist(v);
         flushOrConflict("Số phiếu đã tồn tại hoặc dữ liệu không hợp lệ");
+        audit.log("cash", "CREATE", v.code, String.format("Tạo phiếu %s (%s) - Số tiền: %,d đ - Thu ngân: %s", v.type, v.code, v.amount, v.createdBy));
         return Response.status(Response.Status.CREATED).entity(v).build();
     }
 
@@ -212,10 +235,13 @@ public class CashVoucherResource {
         v.fxRate = in.fxRate;
         v.sourceDocId = in.sourceDocId;
         v.sourceDocNo = in.sourceDocNo;
+        v.warehouseId = in.warehouseId;
+        v.warehouseName = in.warehouseName;
         normalize(v);
         validate(v);
         v.updatedBy = username();
         flushOrConflict("Dữ liệu không hợp lệ");
+        audit.log("cash", "UPDATE", v.code, String.format("Cập nhật phiếu %s (%s) - Số tiền: %,d đ", v.type, v.code, v.amount));
         return v;
     }
 
@@ -227,14 +253,19 @@ public class CashVoucherResource {
         if (v == null) throw new NotFoundException();
         v.status = "cancelled";
         v.updatedBy = username();
+        audit.log("cash", "CANCEL", v.code, String.format("Hủy phiếu %s (%s)", v.type, v.code));
     }
 
     // ---------- So quy tien mat ----------
     @GET @Path("/book")
     public Map<String, Object> book(@QueryParam("dateFrom") String dateFrom,
                                     @QueryParam("dateTo") String dateTo,
-                                    @QueryParam("accountId") String accountId) {
-        permissions.require("cash", "READ");
+                                    @QueryParam("accountId") String accountId,
+                                    @QueryParam("warehouseId") String warehouseId,
+                                    @QueryParam("shiftId") String shiftId) {
+        if (!permissions.has("cash", "READ") && !permissions.has("minibar", "READ")) {
+            permissions.require("cash", "READ");
+        }
         LocalDate to = date(dateTo);
         if (to == null) to = LocalDate.now();
         LocalDate from = date(dateFrom);
@@ -244,12 +275,33 @@ public class CashVoucherResource {
         StringBuilder base = new StringBuilder(" from CashVoucher v where v.status = 'posted'");
         Map<String, Object> params = new HashMap<>();
         if (!blank(accountId)) { base.append(" and v.accountId = :acc"); params.put("acc", accountId); }
+        if (!blank(warehouseId) && !"all".equalsIgnoreCase(warehouseId)) {
+            base.append(" and (v.warehouseId = :wid or v.sourceDocId in (select d.id from InvDoc d where d.warehouseOut.id = :wid or d.warehouseIn.id = :wid))");
+            params.put("wid", warehouseId);
+        }
+        if (!blank(shiftId) && !"all".equalsIgnoreCase(shiftId)) {
+            base.append(" and v.shiftId = :sid");
+            params.put("sid", shiftId.trim());
+        }
+
+        StringBuilder obJpql = new StringBuilder(
+                "select coalesce(sum(o.amount), 0) from OpeningBalance o where o.kind = 'cash' and (o.date is null or o.date <= :from)");
+        Map<String, Object> obParams = new HashMap<>();
+        if (!blank(accountId)) {
+            obJpql.append(" and o.accountId = :acc");
+            obParams.put("acc", accountId);
+        }
+        if (!blank(warehouseId) && !"all".equalsIgnoreCase(warehouseId)) {
+            obJpql.append(" and o.warehouseId = :wid");
+            obParams.put("wid", warehouseId);
+        }
+        long openBalAmount = sumInRange(obJpql.toString(), obParams, from);
 
         long openingIn = sumInRange("select coalesce(sum(v.amount), 0)" + base
                 + " and v.type <> 'payment' and v.date < :from", params, from);
         long openingOut = sumInRange("select coalesce(sum(v.amount), 0)" + base
                 + " and v.type = 'payment' and v.date < :from", params, from);
-        long opening = openingIn - openingOut;
+        long opening = openBalAmount + openingIn - openingOut;
 
         TypedQuery<CashVoucher> query = em.createQuery(
                 "select v" + base + " and v.date between :from and :to order by v.date asc, v.code asc", CashVoucher.class);
@@ -271,10 +323,13 @@ public class CashVoucherResource {
             r.put("id", v.id);
             r.put("no", v.code);
             r.put("date", v.date);
+            r.put("createdAt", v.createdAt);
             r.put("type", v.type);
             r.put("name", v.name);
             r.put("partnerName", v.partnerName);
             r.put("accountId", v.accountId);
+            r.put("warehouseId", v.warehouseId);
+            r.put("warehouseName", v.warehouseName);
             r.put("currency", v.currency);
             r.put("amountCurrency", v.amountCurrency);
             r.put("receipt", receipt);
@@ -297,7 +352,9 @@ public class CashVoucherResource {
     // ---------- Tao phieu thu/chi tu phieu nhap/xuat ----------
     @GET @Path("/vouchers/by-source/{docId}")
     public Map<String, Object> getBySource(@PathParam("docId") Long docId) {
-        permissions.require("cash", "READ");
+        if (!permissions.has("cash", "READ") && !permissions.has("minibar", "READ")) {
+            permissions.require("cash", "READ");
+        }
         List<CashVoucher> list = em.createQuery(
                 "select v from CashVoucher v where v.sourceDocId = :id and v.status <> 'cancelled'", CashVoucher.class)
                 .setParameter("id", docId).setMaxResults(1).getResultList();
@@ -309,7 +366,9 @@ public class CashVoucherResource {
 
     @POST @Path("/vouchers/from-inventory/{docId}") @Transactional
     public Response fromInventory(@PathParam("docId") Long docId) {
-        permissions.require("cash", "CREATE");
+        if (!permissions.has("cash", "CREATE") && !permissions.has("minibar", "CREATE")) {
+            permissions.require("cash", "CREATE");
+        }
         InvDoc doc = InvDoc.findById(docId);
         if (doc == null) throw new NotFoundException();
         if (!"import".equals(doc.type) && !"export".equals(doc.type) && !"return".equals(doc.type)) {
@@ -338,6 +397,8 @@ public class CashVoucherResource {
         v.accountId = defaultCashAccount();
         v.status = "posted";
         v.code = nextNo(type);
+        v.createdAt = java.time.OffsetDateTime.now();
+        v.updatedAt = v.createdAt;
         v.createdBy = username();
         v.updatedBy = v.createdBy;
 
@@ -350,6 +411,18 @@ public class CashVoucherResource {
             v.partnerId = p[0] == null ? null : p[0].toString();
             v.partnerName = p[1] == null ? null : p[1].toString();
         }
+
+        // Kho: luu warehouse snapshot de tong hop phieu thu/chi theo kho
+        if (doc.hasWarehouseOut()) {
+            v.warehouseId = doc.warehouseOutId();
+            v.warehouseName = doc.warehouseOutName();
+        } else if (doc.hasWarehouseIn()) {
+            v.warehouseId = doc.warehouseInId();
+            v.warehouseName = doc.warehouseInName();
+        }
+
+        // Ca lam viec: lien ket shiftId de tong hop thu chi theo ca
+        v.shiftId = doc.shiftId;
 
         em.persist(v);
         flushOrConflict("Không thể tạo phiếu thu/chi");
@@ -378,6 +451,13 @@ public class CashVoucherResource {
             List<String> names = em.createQuery("select p.name from Partner p where p.id = :id", String.class)
                     .setParameter("id", v.partnerId).setMaxResults(1).getResultList();
             if (!names.isEmpty()) v.partnerName = names.get(0);   // CS-S9
+        }
+        if (blank(v.warehouseId)) {
+            v.warehouseId = null;
+            v.warehouseName = null;
+        } else if (blank(v.warehouseName)) {
+            Warehouse wh = em.find(Warehouse.class, v.warehouseId);
+            if (wh != null) v.warehouseName = wh.name;
         }
         v.sourceDocNo = blank(v.sourceDocNo) ? null : v.sourceDocNo;
     }

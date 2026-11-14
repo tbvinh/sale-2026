@@ -11,6 +11,7 @@ import { useDebounced } from '../../core/useDebounced.js';
 import { downloadFile } from '../../core/http.js';
 import { apiFetch } from '../../core/api.js';
 import MediaUpload from '../../core/MediaUpload.jsx';
+import ProductTagPrintModal from '../../core/ProductTagPrintModal.jsx';
 
 const CATS = [
   { id: 'customers', icon: '🧑‍💼', store: customersStore, path: '/customers' },
@@ -30,16 +31,22 @@ const PARTNER_KINDS = [
   { value: 'other', labelKey: 'cat.kindOther' },
 ];
 
+const MATERIAL_KINDS = [
+  { value: 'material', labelKey: 'cat.kindMaterial' },
+  { value: 'service', labelKey: 'cat.kindService' },
+];
+
 const messages = {
   vi: {
-    'cat.title': 'Danh mục', 'cat.suppliers': 'Nhà cung cấp', 'cat.customers': 'Khách hàng', 'cat.materials': 'Vật tư',
+    'cat.title': 'Danh mục', 'cat.suppliers': 'Nhà cung cấp', 'cat.customers': 'Khách hàng', 'cat.materials': 'Vật tư / Hàng hóa',
     'cat.materialTypes': 'Nhóm vật tư', 'cat.banks': 'Ngân hàng', 'cat.accounts': 'Tài khoản kế toán', 'cat.warehouses': 'Kho hàng',
     'cat.employees': 'Nhân viên', 'cat.closingEntries': 'Kết chuyển', 'cat.units': 'Đơn vị tính', 'cat.partners': 'Đối tượng', 'cat.departments': 'Phòng ban',
     'cat.code': 'Mã', 'cat.name': 'Tên', 'cat.phone': 'Điện thoại', 'cat.address': 'Địa chỉ',
     'cat.bankCode': 'Mã NH', 'cat.branch': 'Chi nhánh', 'cat.unit': 'Đơn vị tính', 'cat.price': 'Đơn giá', 'cat.type': 'Nhóm vật tư',
     'cat.email': 'Email', 'cat.position': 'Chức vụ', 'cat.department': 'Phòng ban', 'cat.manager': 'Trưởng phòng',
-    'cat.fromAccount': 'TK nguồn', 'cat.toAccount': 'TK đích', 'cat.description': 'Diễn giải', 'cat.kind': 'Loại đối tượng',
+    'cat.fromAccount': 'TK nguồn', 'cat.toAccount': 'TK đích', 'cat.description': 'Diễn giải', 'cat.kind': 'Tính chất / Loại',
     'cat.kindCustomer': 'Khách hàng', 'cat.kindSupplier': 'Nhà cung cấp', 'cat.kindBoth': 'Cả hai', 'cat.kindOther': 'Khác',
+    'cat.kindMaterial': 'Vật tư, hàng hóa', 'cat.kindService': 'Dịch vụ (Service)',
     'cat.accCode': 'Số hiệu TK', 'cat.new': 'Thêm mới', 'cat.edit': 'Sửa', 'cat.save': 'Lưu', 'cat.cancel': 'Hủy',
     'cat.empty': 'Chưa có dữ liệu.', 'cat.newType': 'Thêm nhóm vật tư mới',
     'cat.search': 'Tìm theo mã, tên, địa chỉ…', 'cat.all': 'Tất cả', 'cat.clear': 'Xóa bộ lọc',
@@ -59,6 +66,7 @@ const messages = {
     'cat.deleteSelected': 'Xóa đã chọn', 'cat.confirmBulkDelete': 'Bạn có chắc muốn xóa {n} dòng đã chọn? Thao tác này không thể hoàn tác.',
     'cat.bulkFailed': 'Không xóa được {n}/{total} dòng',
     'cat.exportExcel': 'Xuất Excel', 'cat.exportFailed': 'Không xuất được Excel',
+    'cat.printTags': 'In tem nhãn', 'cat.printSelectedTags': 'In tem đã chọn',
   },
   en: {
     'cat.title': 'Master Data', 'cat.suppliers': 'Suppliers', 'cat.customers': 'Customers', 'cat.materials': 'Materials',
@@ -69,6 +77,7 @@ const messages = {
     'cat.email': 'Email', 'cat.position': 'Position', 'cat.department': 'Department', 'cat.manager': 'Manager',
     'cat.fromAccount': 'From account', 'cat.toAccount': 'To account', 'cat.description': 'Description', 'cat.kind': 'Partner type',
     'cat.kindCustomer': 'Customer', 'cat.kindSupplier': 'Supplier', 'cat.kindBoth': 'Both', 'cat.kindOther': 'Other',
+    'cat.kindMaterial': 'Material / Goods', 'cat.kindService': 'Service',
     'cat.accCode': 'Account no.', 'cat.new': 'Add new', 'cat.edit': 'Edit', 'cat.save': 'Save', 'cat.cancel': 'Cancel',
     'cat.empty': 'No data yet.', 'cat.newType': 'Add new item group',
     'cat.search': 'Search by code, name, address…', 'cat.all': 'All', 'cat.clear': 'Clear filters',
@@ -88,6 +97,7 @@ const messages = {
     'cat.deleteSelected': 'Delete selected', 'cat.confirmBulkDelete': 'Are you sure you want to delete {n} selected rows? This cannot be undone.',
     'cat.bulkFailed': 'Could not delete {n}/{total} rows',
     'cat.exportExcel': 'Export Excel', 'cat.exportFailed': 'Could not export Excel',
+    'cat.printTags': 'Print Tags', 'cat.printSelectedTags': 'Print Selected Tags',
   },
 };
 
@@ -103,6 +113,7 @@ const PAGE_SIZES = [5, 10, 20, 50, 100];
 //   kind: 'select' (options tĩnh) | 'number' | 'text'
 function filtersFor(id, t, types) {
   if (id === 'materials') return [
+    { key: 'kind', kind: 'select', label: t('cat.kind'), options: MATERIAL_KINDS.map((k) => ({ value: k.value, label: t(k.labelKey) })) },
     { key: 'typeId', kind: 'select', label: t('cat.type'), options: types.map((x) => ({ value: x.id, label: x.name })) },
     { key: 'priceMin', kind: 'number', label: t('cat.priceFrom') },
     { key: 'priceMax', kind: 'number', label: t('cat.priceTo') },
@@ -127,6 +138,13 @@ function filtersFor(id, t, types) {
 function schemaFor(id, t, types) {
   if (id === 'materials') return [
     { key: 'code', label: t('cat.code') },
+    { key: 'kind', label: t('cat.kind'),
+      display: (it) => (it.kind === 'service' ? '🛎️ ' + t('cat.kindService') : '📦 ' + t('cat.kindMaterial')),
+      render: (editing, update) => (
+        <select value={editing.kind ?? 'material'} onChange={(e) => update({ kind: e.target.value })}>
+          {MATERIAL_KINDS.map((k) => <option key={k.value} value={k.value}>{t(k.labelKey)}</option>)}
+        </select>
+      ) },
     { key: 'name', label: t('cat.name'), display: (it) => (
       <span className="medianame">
         {it.imageUrl ? <img src={it.imageUrl} alt="" /> : null}{it.name}
@@ -183,7 +201,7 @@ const IMPORT_SPEC = {
   suppliers: { cols: ['code', 'name', 'phone', 'address'], required: ['name'], sample: ['NCC001', 'NCC Phong Vũ', '0901234567', 'TP.HCM'] },
   customers: { cols: ['code', 'name', 'phone', 'address'], required: ['name'], sample: ['KH001', 'Công ty TNHH ABC', '0907654321', 'Hà Nội'] },
   warehouses: { cols: ['code', 'name', 'address'], required: ['name'], sample: ['KHO001', 'Kho trung tâm', 'TP.HCM'] },
-  materials: { cols: ['code', 'name', 'unit', 'price', 'type'], required: ['name'], sample: ['VT001', 'Bàn phím cơ', 'cái', '700000', 'Phụ kiện'] },
+  materials: { cols: ['code', 'name', 'unit', 'price', 'type', 'kind'], required: ['name'], sample: ['VT001', 'Bàn phím cơ', 'cái', '700000', 'Phụ kiện', 'material'] },
   materialTypes: { cols: ['name'], required: ['name'], sample: ['Phụ kiện'] },
   employees: { cols: ['code', 'name', 'phone', 'email', 'position'], required: ['name'], sample: ['NV001', 'Nguyễn Văn A', '0901234567', 'a@congty.vn', 'Nhân viên kinh doanh'] },
   units: { cols: ['code', 'name'], required: ['name'], sample: ['DVT001', 'Cái'] },
@@ -404,6 +422,7 @@ function Body({ state, setState, can }) {
   const types = materialTypesStore.use().items;   // danh sách nhỏ, tải đủ để đổ dropdown và hiển thị tên nhóm
   const [imp, setImp] = useState({ busy: false, result: null, key: 0 });
   const [exporting, setExporting] = useState(false);
+  const [tagPrintItems, setTagPrintItems] = useState(null);
 
   const q = state.q ?? '';
   const filters = state.filters ?? NO_FILTERS;
@@ -545,6 +564,21 @@ function Body({ state, setState, can }) {
       <div className="ghead">
         <h2>{t('cat.' + cat.id)}</h2>
         <div>
+          {cat.id === 'materials' && items.length > 0 && (
+            <button
+              type="button"
+              className="tb"
+              title="In tem nhãn mã vạch + QR"
+              onClick={() => {
+                const toPrint = selSet.size > 0
+                  ? items.filter((it) => selSet.has(it.id))
+                  : items;
+                setTagPrintItems(toPrint);
+              }}
+            >
+              🏷️ {t('cat.printTags')}
+            </button>
+          )}{' '}
           {can('catalog', 'export') && (
             <button className="tb" disabled={exporting} onClick={onExportExcel}>
               {exporting ? '⏳' : '⬇'} {t('cat.exportExcel')}
@@ -594,6 +628,19 @@ function Body({ state, setState, can }) {
         <div className="bulkbar" role="status">
           <b>{t('cat.selected').replace('{n}', selSet.size)}</b>
           <button type="button" className="tb" disabled={busy} onClick={() => setSel([])}>{t('cat.clearSel')}</button>
+          {cat.id === 'materials' && (
+            <button
+              type="button"
+              className="tb"
+              disabled={busy}
+              onClick={() => {
+                const selectedItems = items.filter((it) => selSet.has(it.id));
+                if (selectedItems.length) setTagPrintItems(selectedItems);
+              }}
+            >
+              🏷️ {t('cat.printSelectedTags')} ({selSet.size})
+            </button>
+          )}
           <button type="button" className="tb" disabled={busy} onClick={onBulkDelete}>
             {busy ? '⏳ ' : '🗑 '}{t('cat.deleteSelected')} ({selSet.size})
           </button>
@@ -634,6 +681,17 @@ function Body({ state, setState, can }) {
               )}
               {schema.map((f) => <td key={f.key}>{f.display ? f.display(it) : it[f.key]}</td>)}
               <td>
+                {cat.id === 'materials' && (
+                  <button
+                    type="button"
+                    className="xbtn"
+                    title={t('cat.printTags')}
+                    aria-label={t('cat.printTags')}
+                    onClick={() => setTagPrintItems([it])}
+                  >
+                    🏷️
+                  </button>
+                )}
                 {can('catalog', 'update') && <button className="xbtn" onClick={() => setState({ editing: { ...it }, error: null })}>✏️</button>}
                 {canDelete && (
                   <button className="xbtn" disabled={busy || state.busyId === it.id} title={t('cat.delete')} aria-label={t('cat.delete')} onClick={async () => {
@@ -660,6 +718,14 @@ function Body({ state, setState, can }) {
       </table>
 
       {total > 0 && <Pager page={page} totalPages={totalPages} pageSize={pageSize} setState={setState} />}
+
+      {tagPrintItems && (
+        <ProductTagPrintModal
+          items={tagPrintItems}
+          onClose={() => setTagPrintItems(null)}
+          t={t}
+        />
+      )}
     </div>
   );
 }

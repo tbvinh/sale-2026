@@ -10,3 +10,4 @@ CREATE TABLE IF NOT EXISTS system_settings (
 INSERT INTO system_settings (setting_key, setting_value, description)
 VALUES ('inv_delete_policy', 'prompt', 'Chính sách xóa phiếu kho khi có chứng từ thu/chi liên kết: prompt (hỏi), cascade (tự động xóa liên kết), block (chặn xóa)')
 ON CONFLICT (setting_key) DO NOTHING;
+

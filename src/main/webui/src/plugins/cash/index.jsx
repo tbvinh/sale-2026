@@ -7,7 +7,8 @@ import { useAsyncQuery } from '../../core/useasyncquery.js';
 import { cashApi } from '../../api/cashApi.js';
 import { printCashVoucher } from './print.js';
 import { inventoryApi } from '../../api/inventoryApi.js';
-import { partnersStore, accountsStore, vnd } from '../../core/masterdata.js';
+import { partnersStore, accountsStore, warehousesStore, vnd, formatDate } from '../../core/masterdata.js';
+import { formatDateTime } from '../../core/dateFormat.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const firstOfMonth = () => today().slice(0, 8) + '01';
@@ -186,6 +187,7 @@ function VoucherView({ kind, state, setState, can, bus }) {
   const { t } = useI18n();
   const confirm = useConfirm();
   const accounts = accountsStore.use().items;
+  const warehouses = warehousesStore.use().items || [];
 
   const q = state.q ?? '';
   const settledQ = useDebounced(q, 300);
@@ -193,6 +195,7 @@ function VoucherView({ kind, state, setState, can, bus }) {
   const pageSize = state.pageSize ?? 10;
   const params = {
     type: kind, q: settledQ, dateFrom: state.dateFrom ?? '', dateTo: state.dateTo ?? '',
+    warehouseId: state.warehouseId ?? '',
     page, pageSize, sort: 'date', dir: 'desc',
   };
   const { data, fetching, error: loadError, reload } = useAsyncQuery(
@@ -256,9 +259,21 @@ function VoucherView({ kind, state, setState, can, bus }) {
           <input type="date" value={state.dateTo ?? ''}
             onChange={(e) => setState({ dateTo: e.target.value, page: 1 }, { replace: true })} />
         </label>
-        {(q || state.dateFrom || state.dateTo) && (
+        <label className="filter">
+          <span>Kho hàng:</span>
+          <select
+            value={state.warehouseId ?? ''}
+            onChange={(e) => setState({ warehouseId: e.target.value, page: 1 }, { replace: true })}
+          >
+            <option value="">Tất cả kho</option>
+            {warehouses.map((w) => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+          </select>
+        </label>
+        {(q || state.dateFrom || state.dateTo || state.warehouseId) && (
           <button type="button" className="tb"
-            onClick={() => setState({ q: '', dateFrom: '', dateTo: '', page: 1 }, { replace: true })}>
+            onClick={() => setState({ q: '', dateFrom: '', dateTo: '', warehouseId: '', page: 1 }, { replace: true })}>
             ✕ {t('cash.clear')}
           </button>
         )}
@@ -292,7 +307,7 @@ function VoucherView({ kind, state, setState, can, bus }) {
           {items.map((v) => (
             <tr key={v.id}>
               <td>{v.code}</td>
-              <td>{v.date}</td>
+              <td style={{ whiteSpace: 'nowrap' }}>{v.createdAt ? formatDateTime(v.createdAt) : formatDate(v.date)}</td>
               <td>{v.partnerName || v.partnerId || ''}</td>
               <td>{v.name}</td>
               <td>
@@ -497,9 +512,10 @@ function VoucherForm({ kind, editing, state, setState, can, accounts, reload, bu
 
 function CashBook({ state, setState }) {
   const { t } = useI18n();
-  const params = { dateFrom: state.bookFrom, dateTo: state.bookTo };
+  const warehouses = warehousesStore.use().items || [];
+  const params = { dateFrom: state.bookFrom, dateTo: state.bookTo, warehouseId: state.bookWarehouseId };
   const { data, fetching, error, reload } = useAsyncQuery(
-    'cashbook:' + params.dateFrom + ':' + params.dateTo,
+    'cashbook:' + params.dateFrom + ':' + params.dateTo + ':' + (params.warehouseId || ''),
     (signal) => cashApi.book(params, { signal }),
     {},
   );
@@ -525,6 +541,24 @@ function CashBook({ state, setState }) {
           <input type="date" value={state.bookTo ?? ''}
             onChange={(e) => setState({ bookTo: e.target.value }, { replace: true })} />
         </label>
+        <label className="filter">
+          <span>Kho hàng:</span>
+          <select
+            value={state.bookWarehouseId ?? ''}
+            onChange={(e) => setState({ bookWarehouseId: e.target.value }, { replace: true })}
+          >
+            <option value="">Tất cả kho</option>
+            {warehouses.map((w) => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+          </select>
+        </label>
+        {state.bookWarehouseId && (
+          <button type="button" className="tb"
+            onClick={() => setState({ bookWarehouseId: '' }, { replace: true })}>
+            ✕ Bỏ lọc kho
+          </button>
+        )}
         <span className="catcount">{fetching ? '⏳ ' : ''}{rows.length} {t('cash.entries')}</span>
       </div>
 
@@ -562,7 +596,7 @@ function CashBook({ state, setState }) {
           </tr>
           {rows.map((r) => (
             <tr key={r.id}>
-              <td>{r.date}</td>
+              <td style={{ whiteSpace: 'nowrap' }}>{r.createdAt ? formatDateTime(r.createdAt) : formatDate(r.date)}</td>
               <td>{r.no}</td>
               <td>{r.name}{r.type === 'exchange' && r.currency !== 'VND'
                 ? ` (${r.amountCurrency} ${r.currency})` : ''}</td>
@@ -673,7 +707,7 @@ function FromInventory({ state, setState, can }) {
                 <td>{d.no}</td>
                 <td>{t('inv.' + d.type)}</td>
                 <td>{d.partner?.name || ''}</td>
-                <td>{d.date}</td>
+                <td>{formatDate(d.date)}</td>
                 <td className="num">{vnd(lineTotal(d))}</td>
                 <td className="acts">
                   <button type="button" className="tb" disabled={disabled} onClick={() => doCreate(d)}>

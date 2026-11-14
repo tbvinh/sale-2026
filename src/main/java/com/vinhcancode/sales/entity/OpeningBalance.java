@@ -8,7 +8,7 @@ import java.time.LocalDate;
 
 @Entity @Table(name = "opening_balances")
 public class OpeningBalance extends MasterEntity {
-    public String kind;             // debt | loan | bank | account | material | tool | advance
+    public String kind;             // debt | loan | bank | account | material | tool | advance | cash
     public String direction;        // receivable | payable | debit | credit
     @Column(name = "partner_id")
     public String partnerId;
@@ -18,6 +18,8 @@ public class OpeningBalance extends MasterEntity {
     public String accountId;
     @Column(name = "material_id")
     public String materialId;
+    @Column(name = "warehouse_id")
+    public String warehouseId;
     @Column(name = "employee_id")
     public String employeeId;
     public long quantity;
@@ -28,4 +30,6 @@ public class OpeningBalance extends MasterEntity {
     public BigDecimal interestRate;
     @Column(name = "due_date")
     public LocalDate dueDate;
+    @Column(name = "doc_date")
+    public LocalDate date;
 }

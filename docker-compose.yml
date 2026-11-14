@@ -17,7 +17,7 @@ services:
       start_period: 10s
     stop_grace_period: 30s
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
   app:
     image: ${APP_IMAGE:-sale-app:latest}
     restart: unless-stopped
@@ -62,3 +62,22 @@ services:
       - ./uploads:/usr/share/nginx/html/uploads:ro
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     stop_grace_period: 10s
+
+  pgadmin:
+    image: ${PGADMIN_IMAGE:-dpage/pgadmin4:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-secret}
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+volumes:
+  pgadmin_data:
+

@@ -6,7 +6,7 @@ import { useAsyncQuery } from '../../core/useasyncquery.js';
 import { generalApi } from '../../api/generalApi.js';
 import { cashApi } from '../../api/cashApi.js';
 import { inventoryApi } from '../../api/inventoryApi.js';
-import { accountsStore, vnd } from '../../core/masterdata.js';
+import { accountsStore, vnd, formatDate } from '../../core/masterdata.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const firstOfMonth = () => today().slice(0, 8) + '01';
@@ -566,7 +566,7 @@ function ReportTable({ report, rows, fetching }) {
           <tr key={r.id ?? i}>
             {cols.map((c) => (
               <td key={c.key} className={c.num ? 'num' : undefined}>
-                {c.qty ? qtyText(r[c.key]) : c.money ? vnd(r[c.key]) : (r[c.key] ?? '')}
+                {c.qty ? qtyText(r[c.key]) : c.money ? vnd(r[c.key]) : c.key === 'date' ? formatDate(r[c.key]) : (r[c.key] ?? '')}
               </td>
             ))}
           </tr>
