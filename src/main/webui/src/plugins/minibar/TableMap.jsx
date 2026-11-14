@@ -1,8 +1,10 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { diningTablesStore, vnd } from '../../core/masterdata.js';
 import { getAllDrafts, transferTableDraft, clearTableDraft } from './orderDrafts.js';
 import { useConfirm } from '../../core/confirm.jsx';
 import { shiftApi } from '../../api/shiftApi.js';
+import { tableOrderApi } from '../../api/tableOrderApi.js';
+import { bus } from '../../core/plugins.js';
 
 const fold = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
 const cleanDigits = (s) => String(s ?? '').replace(/\D/g, '');
@@ -41,6 +43,26 @@ export function TableMap({ onSelectTable, onOpenCatalog, onOpenAreas, onOpenShif
   const tablesState = diningTablesStore.use();
   const tables = tablesState.items || [];
   const drafts = getAllDrafts();
+  const [serverOrders, setServerOrders] = useState({});
+
+  const refreshServerOrders = useCallback(() => {
+    tableOrderApi.getAllActive()
+      .then((res) => { if (res) setServerOrders(res); })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshServerOrders();
+    const timer = setInterval(refreshServerOrders, 8000);
+    // Lắng nghe thông báo Bếp thời gian thực từ Event Bus
+    const unsub = bus.on('kitchen:event', () => {
+      refreshServerOrders();
+    });
+    return () => {
+      clearInterval(timer);
+      unsub?.();
+    };
+  }, [refreshServerOrders]);
 
   const [currentShift, setCurrentShift] = useState(null);
   useEffect(() => {
@@ -212,7 +234,7 @@ export function TableMap({ onSelectTable, onOpenCatalog, onOpenAreas, onOpenShif
   };
 
   return (
-    <div className="mb-map-wrap" style={{ padding: '16px' }}>
+    <div className="mb-map-wrap" style={{ padding: '16px', boxSizing: 'border-box' }}>
       {/* Top Filter and Stats Bar */}
       <div style={{ background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '14px 18px', marginBottom: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '12px' }}>
@@ -370,6 +392,27 @@ export function TableMap({ onSelectTable, onOpenCatalog, onOpenAreas, onOpenShif
             >
               🪑 {t('minibar.catalog') || 'Danh mục bàn'}
             </button>
+            <button
+              type="button"
+              className="tb"
+              onClick={() => { window.location.hash = '#kitchen'; }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                fontSize: '13px',
+                fontWeight: '700',
+                borderRadius: '6px',
+                background: '#fef3c7',
+                color: '#92400e',
+                border: '1px solid #fde68a',
+                cursor: 'pointer'
+              }}
+              title="Mở màn hình bếp & quầy bar (KDS)"
+            >
+              🍳 {t('kitchen.title') || 'Màn hình Bếp'}
+            </button>
           </div>
         </div>
 
@@ -472,11 +515,25 @@ export function TableMap({ onSelectTable, onOpenCatalog, onOpenAreas, onOpenShif
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '14px' }}>
           {filteredTables.map((table) => {
             const st = getStatusConfig(table.status, t);
+            const serverOrder = serverOrders[table.id];
             const draft = drafts[table.id];
-            const hasOrder = draft && draft.lines && draft.lines.length > 0;
-            const totalLines = hasOrder ? draft.lines.length : 0;
-            const totalQty = hasOrder ? draft.lines.reduce((s, l) => s + (Number(l.qty) || 0), 0) : 0;
-            const totalSum = hasOrder ? draft.lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0) : 0;
+            const orderItems = (serverOrder && serverOrder.items && serverOrder.items.length > 0)
+              ? serverOrder.items
+              : (draft && draft.lines ? draft.lines : []);
+            const activeItems = orderItems.filter((it) => it.status !== 'cancelled');
+            const hasOrder = activeItems.length > 0;
+            const totalLines = hasOrder ? activeItems.length : 0;
+            const totalQty = hasOrder ? activeItems.reduce((s, l) => s + (Number(l.qty) || 0), 0) : 0;
+            const totalSum = hasOrder
+              ? (serverOrder && serverOrder.totalAmount != null
+                  ? Number(serverOrder.totalAmount)
+                  : activeItems.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0))
+              : 0;
+            const pendingCount = activeItems.filter((it) => it.status === 'pending' || !it.status).length;
+            const preparingCount = activeItems.filter((it) => it.status === 'preparing').length;
+            const servedCount = activeItems.filter((it) => it.status === 'served').length;
+            const hasReadyItems = servedCount > 0;
+            const customerName = serverOrder?.customerName || draft?.customer?.name;
 
             return (
               <div
@@ -485,7 +542,7 @@ export function TableMap({ onSelectTable, onOpenCatalog, onOpenAreas, onOpenShif
                 style={{
                   background: '#fff',
                   border: '2px solid',
-                  borderColor: st.border,
+                  borderColor: hasReadyItems ? '#16a34a' : st.border,
                   borderRadius: '10px',
                   padding: '14px',
                   display: 'flex',
@@ -519,22 +576,44 @@ export function TableMap({ onSelectTable, onOpenCatalog, onOpenAreas, onOpenShif
                       </span>
                     </div>
 
-                    <span
-                      style={{
-                        padding: '2px 8px',
-                        borderRadius: '12px',
-                        fontSize: '11.5px',
-                        fontWeight: '700',
-                        color: st.color,
-                        background: st.bg,
-                        border: `1px solid ${st.border}`,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                      }}
-                    >
-                      {st.icon} {st.label}
-                    </span>
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      {hasReadyItems && (
+                        <span
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            fontSize: '11px',
+                            fontWeight: '800',
+                            color: '#ffffff',
+                            background: '#16a34a',
+                            border: '1px solid #15803d',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            boxShadow: '0 1px 3px rgba(22, 163, 74, 0.4)',
+                          }}
+                          title="Bếp đã nấu xong, sẵn sàng bưng phục vụ khách"
+                        >
+                          🍽️ Bếp xong
+                        </span>
+                      )}
+                      <span
+                        style={{
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          fontSize: '11.5px',
+                          fontWeight: '700',
+                          color: st.color,
+                          background: st.bg,
+                          border: `1px solid ${st.border}`,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        {st.icon} {st.label}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Seat capacity badge */}
@@ -561,9 +640,26 @@ export function TableMap({ onSelectTable, onOpenCatalog, onOpenAreas, onOpenShif
                             {vnd(totalSum)}
                           </span>
                         </div>
-                        {draft.customer && draft.customer.name !== 'Khách vãng lai' && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '4px' }}>
+                          {hasReadyItems && (
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: '#16a34a', color: '#fff', fontSize: '11px', fontWeight: '700', padding: '2px 7px', borderRadius: '4px', boxShadow: '0 1px 2px rgba(22, 163, 74, 0.4)' }}>
+                              🍽️ {servedCount} {t('minibar.itemsReady') || 'món đã xong'}
+                            </div>
+                          )}
+                          {preparingCount > 0 && (
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: '#d97706', color: '#fff', fontSize: '11px', fontWeight: '700', padding: '2px 6px', borderRadius: '4px' }}>
+                              🔥 {preparingCount} {t('minibar.itemsCooking') || 'đang nấu'}
+                            </div>
+                          )}
+                          {pendingCount > 0 && (
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: '#ea580c', color: '#fff', fontSize: '11px', fontWeight: '700', padding: '2px 6px', borderRadius: '4px' }}>
+                              🛎️ {pendingCount} {t('minibar.pendingItems') || 'chờ gửi bếp'}
+                            </div>
+                          )}
+                        </div>
+                        {customerName && customerName !== 'Khách vãng lai' && (
                           <div style={{ fontSize: '11.5px', color: '#64748b' }}>
-                            {t('minibar.customer') || 'Khách'}: <b>{draft.customer.name}</b>
+                            {t('minibar.customer') || 'Khách'}: <b>{customerName}</b>
                           </div>
                         )}
                       </>

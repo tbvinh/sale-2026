@@ -9,6 +9,9 @@ import { resetAllStores } from './masterdata.js';
 import { initDateFormat, useDateFormat } from './dateFormat.js';
 import GlobalSearch from './GlobalSearch.jsx';
 import StatusBar from './StatusBar.jsx';
+import KitchenNotificationCenter from './KitchenNotificationCenter.jsx';
+import ProfileModal from './ProfileModal.jsx';
+import PosLockScreen from './PosLockScreen.jsx';
 import Ribbon, { commonTabs, buildTabs } from './ribbon.jsx';
 import { useHistoryState } from './router.js';
 
@@ -20,6 +23,24 @@ const readSideWidth = () => {
   return Number.isFinite(saved) && saved > 0 ? clampSide(saved) : 230;
 };
 
+function TopbarClock({ t }) {
+  const [time, setTime] = useState(() => new Date());
+  React.useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div
+      className="topbar-clock"
+      title={t('topbar.currentTime') || 'Thời gian thực hiện tại'}
+    >
+      <span className="clock-icon" aria-hidden="true">⏱️</span>
+      <span className="clock-time">{time.toLocaleTimeString('vi-VN')}</span>
+    </div>
+  );
+}
+
 export default function Shell() {
   const allPlugins = usePlugins();
   const { user, logout } = useAuth();
@@ -28,7 +49,45 @@ export default function Shell() {
   const companyId = useTenant();
   const companies = useCompanies();
   const [tenantRev, setTenantRev] = React.useState(0);
+  const [isFullscreen, setIsFullscreen] = React.useState(false);
+  const [posLocked, setPosLocked] = useState(() => {
+    try { return localStorage.getItem('pos_locked') === '1'; } catch { return false; }
+  });
+  const [profileOpen, setProfileOpen] = useState(false);
+
+  React.useEffect(() => {
+    if (posLocked) localStorage.setItem('pos_locked', '1');
+    else localStorage.removeItem('pos_locked');
+  }, [posLocked]);
   useDateFormat();
+
+  React.useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else if (document.documentElement.webkitRequestFullscreen) {
+        document.documentElement.webkitRequestFullscreen();
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      }
+    }
+  };
 
   React.useEffect(() => {
     initDateFormat();
@@ -252,7 +311,27 @@ export default function Shell() {
           )}
           {companies.map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
         </select>
-        <span className="rolebadge">{roleLabel}</span>
+        <TopbarClock t={t} />
+        <button
+          type="button"
+          className="topbar-lock-btn"
+          onClick={() => setPosLocked(true)}
+          title={t('pos.lockScreen') || 'Khóa màn hình POS'}
+          aria-label={t('pos.lockScreen') || 'Khóa màn hình POS'}
+        >
+          <span aria-hidden="true">🔒</span>
+          <span className="btn-text">{t('pos.lock') || 'Khóa POS'}</span>
+        </button>
+        <button
+          type="button"
+          className="topbar-screen-btn"
+          onClick={toggleFullscreen}
+          title={isFullscreen ? 'Thu nhỏ giao diện (Restore / phím Esc)' : 'Phóng to toàn màn hình (Maximize)'}
+          aria-label={isFullscreen ? 'Restore' : 'Maximize'}
+        >
+          <span aria-hidden="true">{isFullscreen ? '🗗' : '🗖'}</span>
+          <span className="btn-text">{isFullscreen ? 'Restore' : 'Maximize'}</span>
+        </button>
         <div className="userwrap" ref={userMenuRef}>
           <button type="button" className="userchip" onClick={() => setUserOpen((v) => !v)}
             aria-haspopup="menu" aria-expanded={userOpen} title={display}>
@@ -274,6 +353,17 @@ export default function Shell() {
                   <span className="usermenu-role">{roleLabel}</span>
                 </div>
               </div>
+              <div className="usermenu-sep" />
+              <button type="button" className="usermenu-item" role="menuitem"
+                onClick={() => { setUserOpen(false); setProfileOpen(true); }}>
+                <span>👤</span>
+                <span>{t('profile.title') || 'Hồ sơ cá nhân & Mã PIN'}</span>
+              </button>
+              <button type="button" className="usermenu-item" role="menuitem"
+                onClick={() => { setUserOpen(false); setPosLocked(true); }}>
+                <span>🔒</span>
+                <span>{t('pos.lockScreen') || 'Khóa màn hình POS'}</span>
+              </button>
               <div className="usermenu-sep" />
               <button type="button" className="usermenu-item danger" role="menuitem"
                 onClick={() => { setUserOpen(false); logout(); }}>
@@ -337,6 +427,16 @@ export default function Shell() {
         </>)}
       </div>
       <StatusBar />
+      <KitchenNotificationCenter />
+      {posLocked && (
+        <PosLockScreen
+          onUnlock={() => setPosLocked(false)}
+          onLogout={() => { setPosLocked(false); logout(); }}
+        />
+      )}
+      {profileOpen && (
+        <ProfileModal onClose={() => setProfileOpen(false)} />
+      )}
     </div>
   );
 }

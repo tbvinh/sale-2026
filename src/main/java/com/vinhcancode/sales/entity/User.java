@@ -36,6 +36,10 @@ public class User extends PanacheEntityBase {
     @JsonIgnore
     public String password;
 
+    @JsonIgnore
+    @Column(name = "pin_code")
+    public String pinCode;
+
     public String role;
 
     @Column(name = "full_name")
@@ -69,6 +73,13 @@ public class User extends PanacheEntityBase {
 
     @Transient
     public Map<String, Map<String, Boolean>> permissions;
+
+    @Transient
+    public Boolean hasPin;
+
+    public Boolean getHasPin() {
+        return pinCode != null && !pinCode.isBlank();
+    }
 //    public String token;
 
     public static User findByUsername(String username) {

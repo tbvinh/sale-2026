@@ -31,6 +31,7 @@ const toInfo = (d) => ({
   role: d.role ?? 'user',
   roleCode: d.roleCode ?? d.role ?? 'user',
   roleName: d.roleName ?? null,
+  hasPin: !!d.hasPin,
   allowPublic: d.allowPublic !== undefined ? !!d.allowPublic : (d.role === 'admin'),
   defaultCompanyId: d.defaultCompanyId ?? null,
   allowedCompanyIds: Array.isArray(d.allowedCompanyIds) ? d.allowedCompanyIds : [],
@@ -62,6 +63,7 @@ export function AuthProvider({ children }) {
   // Xóa phiên phía client + xóa phần `#...` sau URL
   const clearSession = () => {
     localStorage.removeItem(KEY);
+    localStorage.removeItem('pos_locked');
     clearPermissions();
     clearTenant();
     setUser(null);
@@ -111,6 +113,21 @@ export function AuthProvider({ children }) {
     clearSession();
   };
 
-  return <Ctx.Provider value={{ user, login, logout }}>{children}</Ctx.Provider>;
+  const updateProfile = async (body) => {
+    const res = await apiFetch('/api/auth/profile', { method: 'PUT', body });
+    const info = toInfo(res);
+    persist(info);
+    return info;
+  };
+
+  const verifyPin = async (pin) => {
+    return await apiFetch('/api/auth/verify-pin', { method: 'POST', body: { pin } });
+  };
+
+  const verifyPassword = async (password) => {
+    return await apiFetch('/api/auth/verify-password', { method: 'POST', body: { password } });
+  };
+
+  return <Ctx.Provider value={{ user, login, logout, updateProfile, verifyPin, verifyPassword }}>{children}</Ctx.Provider>;
 }
 export const useAuth = () => useContext(Ctx);

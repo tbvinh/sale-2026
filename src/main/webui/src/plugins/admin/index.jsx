@@ -19,6 +19,7 @@ const MODULE_KEYS = {
   inventory: 'inv.title', catalog: 'cat.title', opening: 'open.title', cash: 'cash.title',
   bank: 'bank.title', general: 'general.title', reports: 'reports.title',
   minibar: 'minibar.title', shifts: 'minibar.shifts', tables: 'minibar.catalog',
+  kitchen: 'kitchen.title',
 };
 const ACTION_KEYS = {
   read: 'admin.read', create: 'admin.create', update: 'admin.update',
@@ -155,6 +156,7 @@ const messages = {
     'minibar.title': 'Quán ăn / Bar',
     'minibar.shifts': 'Bàn giao ca',
     'minibar.catalog': 'Danh mục bàn',
+    'kitchen.title': 'Bếp / Bar (KDS)',
   },
   en: {
     'admin.title': 'Administration', 'admin.usersTab': 'Users', 'admin.rolesTab': 'Roles & permissions',
@@ -285,6 +287,7 @@ const messages = {
     'minibar.title': 'Mini Bar / Dining',
     'minibar.shifts': 'Shift Handover',
     'minibar.catalog': 'Dining Tables',
+    'kitchen.title': 'Kitchen / Bar (KDS)',
   },
 };
 
@@ -509,6 +512,7 @@ function Users({ can, isSystemAdmin = true, currentUser, onOpenBackup }) {
         permissions: editing.permissions ?? null,
       };
       if (editing.password) body.password = editing.password;
+      if (editing.pin !== undefined) body.pin = editing.pin;
       if (editing.id) await adminApi.users.update(editing.id, body);
       else await adminApi.users.create(body);
       setEditing(null);
@@ -586,6 +590,32 @@ function Users({ can, isSystemAdmin = true, currentUser, onOpenBackup }) {
           <label>{t('admin.password')}
             <input type="password" value={editing.password ?? ''} placeholder={t('admin.passwordHint')}
               onChange={(e) => setEditing({ ...editing, password: e.target.value })} />
+          </label>
+          <label>Mã PIN POS (4-6 số)
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                type="password"
+                maxLength={6}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={editing.pin ?? ''}
+                placeholder={editing.id ? (editing.hasPin ? '•••• (Đã có PIN, nhập để đổi)' : 'Chưa có PIN (nhập 4-6 số)') : 'Nhập mã PIN POS (4-6 số)'}
+                onChange={(e) => setEditing({ ...editing, pin: e.target.value.replace(/\D/g, '').slice(0, 6) })}
+              />
+              {editing.id && editing.hasPin && (
+                <button
+                  type="button"
+                  className="tb danger"
+                  title="Xóa mã PIN của người dùng này"
+                  onClick={() => setEditing({ ...editing, pin: '' })}
+                >
+                  Xóa PIN
+                </button>
+              )}
+            </div>
+            <span className="muted" style={{ display: 'block', marginTop: 4 }}>
+              Mã PIN (4-6 chữ số) giúp nhân viên mở khóa nhanh màn hình POS.
+            </span>
           </label>
           {isSystemAdmin && (
             <label>{t('admin.role')}
@@ -775,7 +805,7 @@ function Users({ can, isSystemAdmin = true, currentUser, onOpenBackup }) {
       <table className="invtable zebra">
         <thead>
           <tr>
-            <th>{t('admin.username')}</th><th>{t('admin.fullName')}</th><th>{t('admin.role')}</th>
+            <th>{t('admin.username')}</th><th>{t('admin.fullName')}</th><th>{t('admin.role')}</th><th>PIN POS</th>
             <th>{t('admin.userCompanies')}</th><th>{t('admin.active')}</th><th>{t('admin.actions')}</th>
           </tr>
         </thead>
@@ -793,6 +823,15 @@ function Users({ can, isSystemAdmin = true, currentUser, onOpenBackup }) {
                 </td>
                 <td>{row.fullName || ''}</td>
                 <td>{roleName(row.role)}</td>
+                <td>
+                  {row.hasPin ? (
+                    <span className="rolebadge" style={{ background: '#dcfce7', color: '#15803d', borderColor: '#86efac', fontWeight: '600' }}>
+                      🔒 Đã bật
+                    </span>
+                  ) : (
+                    <span className="muted" style={{ fontSize: '12px' }}>Chưa có</span>
+                  )}
+                </td>
                 <td>
                   {row.role === 'admin' ? (
                     <span className="rolebadge">{t('admin.allCompanies')}</span>

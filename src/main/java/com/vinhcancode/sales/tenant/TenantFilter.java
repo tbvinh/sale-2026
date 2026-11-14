@@ -33,6 +33,12 @@ public class TenantFilter implements ContainerRequestFilter {
         if (company == null || company.isBlank()) {
             company = request.getHeaderString("X-Tenant-Id");
         }
+        if (company == null || company.isBlank()) {
+            company = request.getUriInfo().getQueryParameters().getFirst("companyId");
+        }
+        if (company == null || company.isBlank()) {
+            company = request.getUriInfo().getQueryParameters().getFirst("tenantId");
+        }
 
         String username = jwt != null ? jwt.getName() : null;
         Set<String> groups = jwt != null ? jwt.getGroups() : null;

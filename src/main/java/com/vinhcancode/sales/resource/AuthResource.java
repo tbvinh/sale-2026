@@ -2,14 +2,16 @@ package com.vinhcancode.sales.resource; // Thay đúng package của bạn
 
 import com.vinhcancode.sales.dto.AuthRequest;
 import com.vinhcancode.sales.dto.AuthResponse;
+import com.vinhcancode.sales.dto.ProfileRequest;
 import com.vinhcancode.sales.entity.Role;
 import com.vinhcancode.sales.entity.User;
 import com.vinhcancode.sales.service.AdminService;
 import com.vinhcancode.sales.service.AuthService;
 import com.vinhcancode.sales.service.PermissionService;
+import io.quarkus.elytron.security.common.BcryptUtil;
 import jakarta.annotation.security.RolesAllowed;
-
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.NewCookie;
@@ -111,8 +113,113 @@ public class AuthResource {
         body.put("allowedCompanyIds", user != null && user.companyIds != null ? user.companyIds : Collections.emptyList());
         body.put("ownerCompanyIds", user != null && user.ownerCompanyIds != null ? user.ownerCompanyIds : Collections.emptyList());
         body.put("companies", user != null && user.companies != null ? user.companies : Collections.emptyList());
+        body.put("hasPin", user != null && user.pinCode != null && !user.pinCode.isBlank());
         body.put("permissions", permissionService.effective(username, isSystemAdmin));
         return Response.ok(body).build();
+    }
+
+    @PUT
+    @Path("/profile")
+    @RolesAllowed({"admin", "user", "company_admin"})
+    @Transactional
+    public Response updateProfile(ProfileRequest req) {
+        String username = jwt.getName();
+        User user = User.findByUsername(username);
+        if (user == null) {
+            return unauthorized("Không tìm thấy người dùng");
+        }
+        if (req == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("message", "Dữ liệu không hợp lệ"))
+                    .build();
+        }
+        if (req.fullName != null) {
+            user.fullName = req.fullName.trim().isEmpty() ? null : req.fullName.trim();
+        }
+        if (req.imageUrl != null) {
+            user.imageUrl = req.imageUrl.trim().isEmpty() ? null : req.imageUrl.trim();
+        }
+        if (req.password != null && !req.password.isBlank()) {
+            if (req.currentPassword != null && !req.currentPassword.isBlank()) {
+                if (!BcryptUtil.matches(req.currentPassword, user.password)) {
+                    return Response.status(Response.Status.BAD_REQUEST)
+                            .entity(Map.of("message", "Mật khẩu hiện tại không chính xác"))
+                            .build();
+                }
+            }
+            if (req.password.trim().length() < 6) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(Map.of("message", "Mật khẩu mới phải từ 6 ký tự trở lên"))
+                        .build();
+            }
+            user.password = BcryptUtil.bcryptHash(req.password.trim());
+        }
+        if (req.pin != null) {
+            String trimmedPin = req.pin.trim();
+            if (trimmedPin.isEmpty()) {
+                user.pinCode = null;
+            } else {
+                if (!trimmedPin.matches("^[0-9]{4,6}$")) {
+                    return Response.status(Response.Status.BAD_REQUEST)
+                            .entity(Map.of("message", "Mã PIN phải gồm từ 4 đến 6 chữ số"))
+                            .build();
+                }
+                user.pinCode = BcryptUtil.bcryptHash(trimmedPin);
+            }
+        }
+        user.persist();
+        return me();
+    }
+
+    @POST
+    @Path("/verify-pin")
+    @RolesAllowed({"admin", "user", "company_admin"})
+    public Response verifyPin(Map<String, String> body) {
+        String username = jwt.getName();
+        User user = User.findByUsername(username);
+        if (user == null) {
+            return unauthorized("Không tìm thấy người dùng");
+        }
+        String pin = body != null ? body.get("pin") : null;
+        if (pin == null || pin.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("message", "Vui lòng nhập mã PIN"))
+                    .build();
+        }
+        if (user.pinCode == null || user.pinCode.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("message", "Tài khoản chưa cài đặt mã PIN. Vui lòng mở khóa bằng mật khẩu."))
+                    .build();
+        }
+        if (!BcryptUtil.matches(pin.trim(), user.pinCode)) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("message", "Mã PIN không chính xác"))
+                    .build();
+        }
+        return Response.ok(Map.of("ok", true, "message", "Mở khóa thành công")).build();
+    }
+
+    @POST
+    @Path("/verify-password")
+    @RolesAllowed({"admin", "user", "company_admin"})
+    public Response verifyPassword(Map<String, String> body) {
+        String username = jwt.getName();
+        User user = User.findByUsername(username);
+        if (user == null) {
+            return unauthorized("Không tìm thấy người dùng");
+        }
+        String password = body != null ? body.get("password") : null;
+        if (password == null || password.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("message", "Vui lòng nhập mật khẩu"))
+                    .build();
+        }
+        if (!BcryptUtil.matches(password, user.password)) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("message", "Mật khẩu không chính xác"))
+                    .build();
+        }
+        return Response.ok(Map.of("ok", true, "message", "Mở khóa thành công")).build();
     }
 
     @POST

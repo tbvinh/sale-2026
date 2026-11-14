@@ -168,6 +168,10 @@ public class AdminService {
         User user = new User();
         user.username = rawUsername;
         user.password = BcryptUtil.bcryptHash(req.password);
+        if (!blank(req.pin)) {
+            validatePin(req.pin);
+            user.pinCode = BcryptUtil.bcryptHash(req.pin.trim());
+        }
         user.fullName = blank(req.fullName) ? null : req.fullName.trim();
         user.imageUrl = blank(req.imageUrl) ? null : req.imageUrl.trim();
         user.role = role.code.toLowerCase(Locale.ROOT);
@@ -214,6 +218,14 @@ public class AdminService {
             }
 
             if (!blank(req.password)) user.password = BcryptUtil.bcryptHash(req.password);
+            if (req.pin != null) {
+                if (blank(req.pin)) {
+                    user.pinCode = null;
+                } else {
+                    validatePin(req.pin);
+                    user.pinCode = BcryptUtil.bcryptHash(req.pin.trim());
+                }
+            }
             if (req.fullName != null) user.fullName = blank(req.fullName) ? null : req.fullName.trim();
             if (req.imageUrl != null) user.imageUrl = blank(req.imageUrl) ? null : req.imageUrl.trim();
 
@@ -263,6 +275,14 @@ public class AdminService {
             applyUsernameChange(user, req.username.trim());
         }
         if (!blank(req.password)) user.password = BcryptUtil.bcryptHash(req.password);
+        if (req.pin != null) {
+            if (blank(req.pin)) {
+                user.pinCode = null;
+            } else {
+                validatePin(req.pin);
+                user.pinCode = BcryptUtil.bcryptHash(req.pin.trim());
+            }
+        }
         if (req.fullName != null) user.fullName = blank(req.fullName) ? null : req.fullName.trim();
         if (req.imageUrl != null) user.imageUrl = blank(req.imageUrl) ? null : req.imageUrl.trim();
         user.role = role.code.toLowerCase(Locale.ROOT);
@@ -692,6 +712,12 @@ public class AdminService {
 
     private static boolean blank(String s) {
         return s == null || s.isBlank();
+    }
+
+    private static void validatePin(String pin) {
+        if (pin == null || !pin.trim().matches("^[0-9]{4,6}$")) {
+            throw bad("Mã PIN phải gồm từ 4 đến 6 chữ số");
+        }
     }
 
     private void flushOrConflict(String msg) {

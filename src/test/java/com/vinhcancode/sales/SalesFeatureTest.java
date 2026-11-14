@@ -12,6 +12,7 @@ import java.util.Map;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.CoreMatchers.*;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 
 @QuarkusTest
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
@@ -821,6 +822,194 @@ public class SalesFeatureTest {
                 .then()
                 .statusCode(204);
         }
+    }
+
+    @Test
+    @Order(32)
+    public void testTableOrderLifecycle() {
+        // Dọn dẹp nếu có order cũ từ test trước
+        given().cookie("token", authToken).contentType(ContentType.JSON).post("/api/table-orders/b-01/cancel-order");
+        given().cookie("token", authToken).contentType(ContentType.JSON).post("/api/table-orders/b-02/cancel-order");
+
+        // 1. Mở order cho bàn b-01
+        Response openRes = given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body(Map.of("tableId", "b-01", "customerName", "Khách VIP bàn 1", "guestCount", 4))
+            .when().post("/api/table-orders/open")
+            .then()
+            .statusCode(200)
+            .body("tableId", equalTo("b-01"))
+            .body("status", equalTo("active"))
+            .extract().response();
+
+        Long orderId = openRes.jsonPath().getLong("id");
+
+        // 2. Thêm món vào bàn (pending)
+        given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body(List.of(
+                Map.of("productId", "m-01", "productName", "Cà phê đen", "qty", 2, "price", 25000, "note", "Ít đường"),
+                Map.of("productId", "m-02", "productName", "Trà đào", "qty", 1, "price", 35000)
+            ))
+            .when().post("/api/table-orders/b-01/items")
+            .then()
+            .statusCode(200)
+            .body("items.size()", equalTo(2))
+            .body("items[0].status", equalTo("pending"));
+
+        // 3. Gửi bếp đợt 1
+        Response sendRes1 = given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .when().post("/api/table-orders/b-01/send-kitchen")
+            .then()
+            .statusCode(200)
+            .body("round", equalTo(1))
+            .body("sentItems.size()", equalTo(2))
+            .extract().response();
+
+        Long itemIdToCancel = sendRes1.jsonPath().getLong("sentItems[0].id");
+
+        // 4. Khách gọi thêm đợt 2
+        given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body(List.of(
+                Map.of("productId", "m-03", "productName", "Bò lúc lắc", "qty", 1, "price", 120000, "note", "Làm cay")
+            ))
+            .when().post("/api/table-orders/b-01/items")
+            .then()
+            .statusCode(200);
+
+        // Gửi bếp đợt 2
+        given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .when().post("/api/table-orders/b-01/send-kitchen")
+            .then()
+            .statusCode(200)
+            .body("round", equalTo(2))
+            .body("sentItems.size()", equalTo(1));
+
+        // 5. Hủy 1 món
+        given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body(Map.of("reason", "Khách đổi ý"))
+            .when().post("/api/table-orders/b-01/items/" + itemIdToCancel + "/cancel")
+            .then()
+            .statusCode(200);
+
+        // 6. Kiểm tra active order
+        given()
+            .cookie("token", authToken)
+            .when().get("/api/table-orders/active/b-01")
+            .then()
+            .statusCode(200)
+            .body("status", equalTo("active"))
+            .body("items.size()", equalTo(3));
+
+        // 7. Hoàn tất order
+        given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body(Map.of("invDocId", 9999))
+            .when().post("/api/table-orders/b-01/complete")
+            .then()
+            .statusCode(200)
+            .body("completed", equalTo(true));
+
+        // 8. Bàn b-01 không còn active order
+        given()
+            .cookie("token", authToken)
+            .when().get("/api/table-orders/active/b-01")
+            .then()
+            .statusCode(200)
+            .body("active", equalTo(false));
+    }
+
+    @Test
+    @Order(33)
+    public void testKitchenDisplaySystem() {
+        if (authToken == null) {
+            testAuthLoginSuccess();
+        }
+        // Dọn dẹp bàn b-02 nếu có đơn cũ
+        given().cookie("token", authToken).contentType(ContentType.JSON).post("/api/table-orders/b-02/cancel-order");
+
+        // 1. Mở order bàn b-02
+        Response openRes = given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body(Map.of("tableId", "b-02", "customerName", "Khách Bếp Test"))
+            .when().post("/api/table-orders/open")
+            .then()
+            .statusCode(200)
+            .extract().response();
+
+        Long orderId = openRes.jsonPath().getLong("id");
+
+        // 2. Thêm món vào bàn b-02
+        given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body(List.of(
+                Map.of("productId", "m-01", "productName", "Cà phê sữa đá", "qty", 2, "price", 28000, "note", "Ít ngọt"),
+                Map.of("productId", "m-02", "productName", "Trà vải", "qty", 1, "price", 38000)
+            ))
+            .when().post("/api/table-orders/b-02/items")
+            .then()
+            .statusCode(200);
+
+        // 3. Nhân viên gửi bếp đợt 1
+        given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .when().post("/api/table-orders/b-02/send-kitchen")
+            .then()
+            .statusCode(200)
+            .body("round", equalTo(1))
+            .body("sentItems.size()", equalTo(2));
+
+        // 4. Màn hình bếp (KDS) lấy danh sách đơn chờ
+        Response kdsRes = given()
+            .cookie("token", authToken)
+            .when().get("/api/kitchen/orders")
+            .then()
+            .statusCode(200)
+            .body("size()", greaterThanOrEqualTo(1))
+            .extract().response();
+
+        // 5. Bếp bấm "Nhận làm cả đợt" (chuyển sang 'preparing')
+        given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .when().post("/api/kitchen/orders/" + orderId + "/rounds/1/preparing")
+            .then()
+            .statusCode(200)
+            .body("success", equalTo(true))
+            .body("updatedCount", equalTo(2));
+
+        // 6. Bếp trả từng món hoặc trả toàn bộ đợt
+        given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .when().post("/api/kitchen/orders/" + orderId + "/rounds/1/complete")
+            .then()
+            .statusCode(200)
+            .body("success", equalTo(true))
+            .body("completedCount", equalTo(2));
+
+        // 7. Hoàn tất bàn b-02
+        given()
+            .cookie("token", authToken)
+            .contentType(ContentType.JSON)
+            .body(Map.of())
+            .when().post("/api/table-orders/b-02/complete")
+            .then()
+            .statusCode(200);
     }
 }
 

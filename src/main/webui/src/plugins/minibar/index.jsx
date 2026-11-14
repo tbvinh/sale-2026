@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useI18n } from '../../core/i18n.jsx';
 import Denied from '../../core/Denied.jsx';
+import { diningTablesStore } from '../../core/masterdata.js';
 import { TableMap } from './TableMap.jsx';
 import { OrderView } from './OrderView.jsx';
 import { TableCatalog } from './TableCatalog.jsx';
@@ -193,6 +194,32 @@ const messages = {
     'minibar.orderAction': 'Gọi món',
     'minibar.transferAction': 'Chuyển bàn',
     'minibar.checkInTable': 'Nhận bàn',
+
+    // Order từng món & Gửi bếp / KOT
+    'minibar.sendToKitchen': 'Gửi Bếp / Bar',
+    'minibar.sendingToKitchen': 'Đang gửi bếp…',
+    'minibar.sendKitchenSuccess': 'Đã gửi {count} món sang bếp / quầy bar!',
+    'minibar.sendKitchenFailed': 'Lỗi khi gửi bếp: ',
+    'minibar.pendingItems': 'Món mới chọn (Chờ gửi bếp)',
+    'minibar.sentItems': 'Món đã gửi bếp',
+    'minibar.round': 'Đợt',
+    'minibar.statusPending': 'Chờ gửi',
+    'minibar.statusSent': 'Đang chế biến',
+    'minibar.statusPreparing': 'Đang nấu',
+    'minibar.statusServed': 'Đã ra món',
+    'minibar.statusCancelled': 'Đã hủy',
+    'minibar.itemsReady': 'món đã xong',
+    'minibar.itemsCooking': 'đang nấu',
+    'minibar.cancelItemPrompt': 'Nhập lý do hủy món:',
+    'minibar.cancelItemSuccess': 'Đã hủy món thành công!',
+    'minibar.cancelItemFailed': 'Hủy món thất bại: ',
+    'minibar.printKitchenTicket': 'In phiếu Bếp/Bar',
+    'minibar.kitchenTicketPrinted': 'Đã gửi bếp và mở bản in phiếu chế biến',
+    'minibar.fullscreen': 'Toàn màn hình',
+    'minibar.exitFullscreen': 'Thu nhỏ',
+    'minibar.currentTime': 'Thời gian hiện tại',
+    'minibar.autoPrintTicket': 'Tự động in phiếu khi gửi bếp',
+    'minibar.autoPrintTicketHint': 'Tự động mở hộp thoại in phiếu khi bấm Gửi bếp (mặc định tắt)',
   },
   en: {
     'minibar.title': 'Mini Bar / Dining',
@@ -378,6 +405,32 @@ const messages = {
     'minibar.orderAction': 'Order',
     'minibar.transferAction': 'Transfer',
     'minibar.checkInTable': 'Check-in',
+
+    // Per-item order & Kitchen / KOT
+    'minibar.sendToKitchen': 'Send to Kitchen / Bar',
+    'minibar.sendingToKitchen': 'Sending to kitchen…',
+    'minibar.sendKitchenSuccess': 'Sent {count} items to kitchen / bar!',
+    'minibar.sendKitchenFailed': 'Failed to send to kitchen: ',
+    'minibar.pendingItems': 'New Items (Pending)',
+    'minibar.sentItems': 'Items Sent to Kitchen',
+    'minibar.round': 'Round',
+    'minibar.statusPending': 'Pending',
+    'minibar.statusSent': 'Cooking',
+    'minibar.statusPreparing': 'Cooking',
+    'minibar.statusServed': 'Served',
+    'minibar.statusCancelled': 'Cancelled',
+    'minibar.itemsReady': 'ready to serve',
+    'minibar.itemsCooking': 'cooking',
+    'minibar.cancelItemPrompt': 'Enter reason for cancellation:',
+    'minibar.cancelItemSuccess': 'Item cancelled successfully!',
+    'minibar.cancelItemFailed': 'Failed to cancel item: ',
+    'minibar.printKitchenTicket': 'Print Kitchen Ticket',
+    'minibar.kitchenTicketPrinted': 'Sent to kitchen and opened order ticket',
+    'minibar.fullscreen': 'Fullscreen',
+    'minibar.exitFullscreen': 'Exit Fullscreen',
+    'minibar.currentTime': 'Current Time',
+    'minibar.autoPrintTicket': 'Auto-print ticket when sending to kitchen',
+    'minibar.autoPrintTicketHint': 'Automatically open print dialog when sending to kitchen (default disabled)',
   },
 };
 
@@ -388,6 +441,8 @@ const MENU_ITEMS = [
   { id: 'history', icon: '📋', labelKey: 'minibar.history' },
   { id: 'shifts', icon: '⏱️', labelKey: 'minibar.shifts' },
 ];
+
+const CLEAR_TABLE = { activeTable: null, activeTableId: null, currentTableId: null, tableName: null };
 
 function Menu({ state, setState, t: propT }) {
   const { t: i18nT } = useI18n();
@@ -402,7 +457,7 @@ function Menu({ state, setState, t: propT }) {
           role="tab"
           aria-selected={activeTab === item.id}
           className={`catitem ${activeTab === item.id ? 'active' : ''}`}
-          onClick={() => setState({ tab: item.id, activeTable: null }, { replace: true })}
+          onClick={() => setState({ tab: item.id, ...CLEAR_TABLE }, { replace: true })}
         >
           <span className="catico" aria-hidden="true">{item.icon}</span>
           <span className="catname">{t(item.labelKey)}</span>
@@ -429,35 +484,35 @@ function ribbon({ state, setState, can, t }) {
                 icon: '🍽️',
                 label: 'minibar.map',
                 active: activeTab === 'map',
-                onClick: () => setState({ tab: 'map', activeTable: null }),
+                onClick: () => setState({ tab: 'map', ...CLEAR_TABLE }),
               },
               {
                 id: 'btn-catalog',
                 icon: '🪑',
                 label: 'minibar.catalog',
                 active: activeTab === 'catalog',
-                onClick: () => setState({ tab: 'catalog', activeTable: null }),
+                onClick: () => setState({ tab: 'catalog', ...CLEAR_TABLE }),
               },
               {
                 id: 'btn-areas',
                 icon: '🏢',
                 label: 'minibar.areas',
                 active: activeTab === 'areas',
-                onClick: () => setState({ tab: 'areas', activeTable: null }),
+                onClick: () => setState({ tab: 'areas', ...CLEAR_TABLE }),
               },
               {
                 id: 'btn-history',
                 icon: '📋',
                 label: 'minibar.history',
                 active: activeTab === 'history',
-                onClick: () => setState({ tab: 'history', activeTable: null }),
+                onClick: () => setState({ tab: 'history', ...CLEAR_TABLE }),
               },
               {
                 id: 'btn-shifts',
                 icon: '⏱️',
                 label: 'minibar.shifts',
                 active: activeTab === 'shifts',
-                onClick: () => setState({ tab: 'shifts', activeTable: null }),
+                onClick: () => setState({ tab: 'shifts', ...CLEAR_TABLE }),
               },
             ],
           },
@@ -476,14 +531,21 @@ function View(props) {
     return <Denied />;
   }
 
-  const tab = state.tab || 'map';
+  const tablesState = diningTablesStore.use();
+  const tables = tablesState.items || [];
 
-  if (tab === 'order' && state.activeTable) {
+  const tab = state.tab || 'map';
+  const targetTableId = state.activeTable?.id || state.activeTableId || state.currentTableId;
+  const resolvedTable = (targetTableId ? tables.find((tb) => String(tb.id) === String(targetTableId) || tb.code === targetTableId) : null) || state.activeTable;
+  const activeTable = resolvedTable || (targetTableId ? { id: targetTableId, name: state.tableName || ('Bàn ' + targetTableId), code: targetTableId } : null);
+
+  if (tab === 'order' && activeTable) {
     return (
       <OrderView
-        table={state.activeTable}
-        onBack={() => setState({ tab: 'map', activeTable: null }, { replace: true })}
-        onOrderFinished={() => setState({ tab: 'map', activeTable: null }, { replace: true })}
+        key={activeTable.id}
+        table={activeTable}
+        onBack={() => setState({ tab: 'map', ...CLEAR_TABLE }, { replace: true })}
+        onOrderFinished={() => setState({ tab: 'map', ...CLEAR_TABLE }, { replace: true })}
         can={can}
         t={t}
       />
@@ -495,7 +557,7 @@ function View(props) {
       <TableCatalog
         can={can}
         t={t}
-        onOpenAreas={() => setState({ tab: 'areas', activeTable: null }, { replace: true })}
+        onOpenAreas={() => setState({ tab: 'areas', ...CLEAR_TABLE }, { replace: true })}
       />
     );
   }
@@ -505,8 +567,8 @@ function View(props) {
       <AreaManager
         can={can}
         t={t}
-        onOpenMap={() => setState({ tab: 'map', activeTable: null }, { replace: true })}
-        onOpenCatalog={(area) => setState({ tab: 'catalog', activeTable: null, selectedArea: area }, { replace: true })}
+        onOpenMap={() => setState({ tab: 'map', ...CLEAR_TABLE }, { replace: true })}
+        onOpenCatalog={(area) => setState({ tab: 'catalog', ...CLEAR_TABLE, selectedArea: area }, { replace: true })}
       />
     );
   }
@@ -522,10 +584,10 @@ function View(props) {
   // Default: Table Map
   return (
     <TableMap
-      onSelectTable={(table) => setState({ tab: 'order', activeTable: table }, { replace: true })}
-      onOpenCatalog={() => setState({ tab: 'catalog', activeTable: null }, { replace: true })}
-      onOpenAreas={() => setState({ tab: 'areas', activeTable: null }, { replace: true })}
-      onOpenShifts={() => setState({ tab: 'shifts', activeTable: null }, { replace: true })}
+      onSelectTable={(table) => setState({ ...CLEAR_TABLE, tab: 'order', activeTable: table }, { replace: true })}
+      onOpenCatalog={() => setState({ tab: 'catalog', ...CLEAR_TABLE }, { replace: true })}
+      onOpenAreas={() => setState({ tab: 'areas', ...CLEAR_TABLE }, { replace: true })}
+      onOpenShifts={() => setState({ tab: 'shifts', ...CLEAR_TABLE }, { replace: true })}
       can={can}
       t={t}
     />

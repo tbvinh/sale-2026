@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useI18n } from '../../core/i18n.jsx';
 import {
   materialsStore,
@@ -16,8 +16,11 @@ import { useConfirm } from '../../core/confirm.jsx';
 import { inventoryApi } from '../../api/inventoryApi.js';
 import { cashApi } from '../../api/cashApi.js';
 import { shiftApi } from '../../api/shiftApi.js';
+import { tableOrderApi } from '../../api/tableOrderApi.js';
 import { printThermalReceipt } from '../inventory/voucher.js';
+import { printKitchenTicket } from './kitchenTicket.js';
 import { getTableDraft, saveTableDraft, clearTableDraft, transferTableDraft } from './orderDrafts.js';
+import { bus } from '../../core/plugins.js';
 
 const DEFAULT_CUSTOMER = {
   id: 'khach-vang-lai',
@@ -42,6 +45,7 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
   const [lines, setLines] = useState([]);
   const [orderNote, setOrderNote] = useState('');
   const [openedAt, setOpenedAt] = useState(null);
+  const [activeOrder, setActiveOrder] = useState(null);
 
   // Filter state for menu
   const [menuSearch, setMenuSearch] = useState('');
@@ -50,9 +54,19 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
   // UI state
   const [saving, setSaving] = useState(false);
   const [paying, setPaying] = useState(false);
+  const [sendingKitchen, setSendingKitchen] = useState(false);
+  const [cancelModalItem, setCancelModalItem] = useState(null);
+  const [cancelReason, setCancelReason] = useState('');
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [targetTableId, setTargetTableId] = useState('');
   const [lastAddedId, setLastAddedId] = useState(null);
+  const [autoPrintKitchen, setAutoPrintKitchen] = useState(() => {
+    try {
+      return localStorage.getItem('kds_auto_print') === 'true';
+    } catch (_) {
+      return false;
+    }
+  });
 
   // Initialize draft order or existing order
   useEffect(() => {
@@ -89,6 +103,39 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
       setOrderNote(table.note ? `[Bàn đặt trước] ${table.note}` : '');
       setOpenedAt(new Date().toISOString());
     }
+
+    // Đồng bộ đơn hàng hiện hành từ server (nếu bàn đã có đơn lưu trên server)
+    tableOrderApi.getActive(table.id)
+      .then((srvOrder) => {
+        if (srvOrder && srvOrder.items && srvOrder.items.length > 0) {
+          setActiveOrder(srvOrder);
+          setLines(srvOrder.items);
+          if (srvOrder.customerName && srvOrder.customerName !== 'Khách vãng lai') {
+            setCustomer({ id: 'srv-cust', name: srvOrder.customerName, code: 'KH' });
+          }
+          if (srvOrder.note) setOrderNote(srvOrder.note);
+          if (srvOrder.createdAt) setOpenedAt(srvOrder.createdAt);
+        }
+      })
+      .catch(() => {});
+  }, [table?.id]);
+
+  // Lắng nghe cập nhật từ Bếp (SSE Event Bus) theo thời gian thực
+  useEffect(() => {
+    if (!table?.id) return;
+    const unsub = bus.on('kitchen:event', (evt) => {
+      if (evt && String(evt.tableId) === String(table.id)) {
+        tableOrderApi.getActive(table.id)
+          .then((srvOrder) => {
+            if (srvOrder && srvOrder.items) {
+              setActiveOrder(srvOrder);
+              setLines(srvOrder.items);
+            }
+          })
+          .catch(() => {});
+      }
+    });
+    return () => unsub?.();
   }, [table?.id]);
 
   // Auto-save draft whenever lines, customer, or note changes
@@ -118,31 +165,53 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
     });
   }, [materials, selectedTypeId, menuSearch]);
 
-  // Totals
-  const totalQty = useMemo(() => {
-    return lines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+  // Lines partition: pending vs sent
+  const pendingLines = useMemo(() => {
+    return lines.filter((l) => l.status === 'pending' || !l.status);
   }, [lines]);
+
+  const sentLines = useMemo(() => {
+    return lines.filter((l) => l.status && l.status !== 'pending');
+  }, [lines]);
+
+  const activeLines = useMemo(() => {
+    return lines.filter((l) => l.status !== 'cancelled');
+  }, [lines]);
+
+  // Group sent lines by round
+  const sentByRound = useMemo(() => {
+    const map = new Map();
+    sentLines.forEach((l) => {
+      const r = l.round || 1;
+      if (!map.has(r)) map.set(r, []);
+      map.get(r).push(l);
+    });
+    return Array.from(map.entries()).sort((a, b) => a[0] - b[0]);
+  }, [sentLines]);
+
+  // Totals based on active (non-cancelled) lines
+  const totalQty = useMemo(() => {
+    return activeLines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+  }, [activeLines]);
 
   const totalAmount = useMemo(() => {
-    return lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
-  }, [lines]);
+    return activeLines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
+  }, [activeLines]);
 
-  // Cart actions
+  // Cart actions: add to pending
   const handleAddItem = (product) => {
     setLastAddedId(product.id);
     setTimeout(() => setLastAddedId(null), 600);
 
     setLines((prev) => {
-      const idx = prev.findIndex((l) => l.productId === product.id);
+      const idx = prev.findIndex((l) => l.productId === product.id && (l.status === 'pending' || !l.status));
+      let next;
       if (idx >= 0) {
-        const next = [...prev];
+        next = [...prev];
         next[idx] = { ...next[idx], qty: Number(next[idx].qty || 0) + 1 };
-        return next;
-      }
-      return [
-        ...prev,
-        {
-          id: Date.now() + Math.random(),
+      } else {
+        const newItem = {
+          _key: `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           productId: product.id,
           productCode: product.code || '',
           productName: product.name,
@@ -150,8 +219,20 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
           qty: 1,
           price: Number(product.price) || 0,
           note: '',
-        },
-      ];
+          status: 'pending',
+        };
+        next = [...prev, newItem];
+      }
+      // Async sync to server
+      tableOrderApi.saveItems(table.id, next)
+        .then((res) => {
+          if (res && res.items) {
+            setActiveOrder(res);
+            setLines(res.items);
+          }
+        })
+        .catch((err) => console.warn('Lưu order lên server chậm:', err));
+      return next;
     });
 
     // Mark table occupied if it was empty
@@ -164,12 +245,14 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
     setLines((prev) => {
       const next = [...prev];
       const cur = next[idx];
+      if (cur.status && cur.status !== 'pending') return prev; // Chỉ sửa món pending
       const newQty = (Number(cur.qty) || 0) + delta;
       if (newQty <= 0) {
         next.splice(idx, 1);
       } else {
         next[idx] = { ...cur, qty: newQty };
       }
+      tableOrderApi.saveItems(table.id, next).catch(() => {});
       return next;
     });
   };
@@ -178,11 +261,13 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
     const num = Math.max(0, parseInt(val, 10) || 0);
     setLines((prev) => {
       const next = [...prev];
+      if (next[idx].status && next[idx].status !== 'pending') return prev;
       if (num <= 0) {
         next.splice(idx, 1);
       } else {
         next[idx] = { ...next[idx], qty: num };
       }
+      tableOrderApi.saveItems(table.id, next).catch(() => {});
       return next;
     });
   };
@@ -191,6 +276,7 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
     setLines((prev) => {
       const next = [...prev];
       next[idx] = { ...next[idx], note };
+      tableOrderApi.saveItems(table.id, next).catch(() => {});
       return next;
     });
   };
@@ -199,13 +285,88 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
     setLines((prev) => {
       const next = [...prev];
       next.splice(idx, 1);
+      tableOrderApi.saveItems(table.id, next).catch(() => {});
       return next;
     });
   };
 
+  // Gửi Bếp / Bar các món đang pending
+  const handleSendToKitchen = async () => {
+    if (pendingLines.length === 0) return;
+    setSendingKitchen(true);
+    try {
+      // 1. Sync pending items
+      const saveRes = await tableOrderApi.saveItems(table.id, lines);
+      if (saveRes && saveRes.items) {
+        setLines(saveRes.items);
+      }
+
+      // 2. Gọi API send-kitchen
+      const res = await tableOrderApi.sendKitchen(table.id);
+      if (res && res.order) {
+        setActiveOrder(res.order);
+        setLines(res.order.items || []);
+
+        // 3. In phiếu Bếp / Quầy Bar (chỉ in nếu người dùng chủ động bật tự động in phiếu)
+        if (autoPrintKitchen) {
+          try {
+            printKitchenTicket({
+              tableName: res.tableName || table.name,
+              round: res.round || 1,
+              items: res.sentItems || pendingLines,
+              staffName: res.order.createdBy,
+              note: orderNote,
+            }, t);
+          } catch (pErr) {
+            console.warn('Lỗi khi in phiếu bếp:', pErr);
+          }
+        }
+      }
+    } catch (err) {
+      alert((t('minibar.sendKitchenFailed') || 'Lỗi gửi bếp: ') + (err?.message || ''));
+    } finally {
+      setSendingKitchen(false);
+    }
+  };
+
+  // Hủy món đã gửi bếp
+  const handlePromptCancelItem = (item) => {
+    setCancelModalItem(item);
+    setCancelReason('Bếp hết món / Khách đổi ý');
+  };
+
+  const handleConfirmCancelItem = async () => {
+    if (!cancelModalItem) return;
+    try {
+      const res = await tableOrderApi.cancelItem(table.id, cancelModalItem.id, cancelReason);
+      if (res && res.items) {
+        setActiveOrder(res);
+        setLines(res.items);
+      } else {
+        setLines((prev) => prev.map((it) => it.id === cancelModalItem.id ? { ...it, status: 'cancelled', cancelReason } : it));
+      }
+      setCancelModalItem(null);
+      setCancelReason('');
+    } catch (err) {
+      alert((t('minibar.cancelItemFailed') || 'Lỗi khi hủy món: ') + (err?.message || ''));
+    }
+  };
+
+  // In lại KOT của một đợt cụ thể
+  const handleReprintRound = (roundNum, roundItems) => {
+    printKitchenTicket({
+      tableName: table.name,
+      round: roundNum,
+      items: roundItems,
+      staffName: activeOrder?.createdBy || 'Phục vụ',
+      note: orderNote,
+      targetName: 'IN LẠI BÁO BẾP',
+    }, t);
+  };
+
   // In tạm tính (Interim Bill Print)
   const handlePrintInterimBill = () => {
-    if (lines.length === 0) {
+    if (activeLines.length === 0) {
       alert(t('minibar.noItemsToPrint') || 'Chưa có món nào trong đơn để in tạm tính!');
       return;
     }
@@ -215,7 +376,7 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
       date: new Date().toISOString().slice(0, 10),
       partner: customer,
       note: `${t('minibar.printReceipt') || 'Tạm tính'}: ${table.name}${orderNote ? ` (${orderNote})` : ''}`,
-      lines: lines.map((l, i) => ({
+      lines: activeLines.map((l, i) => ({
         id: i + 1,
         product: { id: l.productId, name: l.productName },
         qty: l.qty,
@@ -242,6 +403,11 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
     }
 
     try {
+      try {
+        await tableOrderApi.transfer(table.id, targetTable.id);
+      } catch (sErr) {
+        console.warn('Lỗi đồng bộ chuyển bàn trên server:', sErr);
+      }
       transferTableDraft(table.id, targetTable.id);
       await diningTablesStore.update(table.id, { status: 'empty', currentDocId: null });
       await diningTablesStore.update(targetTable.id, { status: 'occupied' });
@@ -258,6 +424,11 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
     const ok = await confirm((t('minibar.confirmCancelOrder') || `Bạn có chắc muốn hủy đơn gọi món của "${table.name}" và trả bàn về trạng thái trống?`));
     if (!ok) return;
     try {
+      try {
+        await tableOrderApi.cancelOrder(table.id);
+      } catch (sErr) {
+        console.warn('Lỗi hủy order trên server:', sErr);
+      }
       clearTableDraft(table.id);
       await diningTablesStore.update(table.id, {
         status: 'empty',
@@ -302,7 +473,7 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
         console.warn('Không tải được ca làm việc hiện tại:', sErr);
       }
 
-      // 1. Tạo Phiếu xuất kho bán hàng (type: 'export', isSales: true)
+      // 1. Tạo Phiếu xuất kho bán hàng (type: 'export', isSales: true) cho các món active
       const exportDocPayload = {
         type: 'export',
         isSales: true,
@@ -311,7 +482,7 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
         partner: customer && customer.id ? { id: customer.id, name: customer.name } : DEFAULT_CUSTOMER,
         warehouseOut: warehouse && warehouse.id ? { id: warehouse.id, name: warehouse.name } : null,
         note: `Bán hàng ${table.name || 'Bàn'}${orderNote ? ` - ${orderNote}` : ''}`,
-        lines: lines.map((l) => ({
+        lines: activeLines.map((l) => ({
           product: { id: l.productId, name: l.productName },
           qty: Number(l.qty) || 1,
           price: Number(l.price) || 0,
@@ -330,7 +501,13 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
         }
       }
 
-      // 3. Giải phóng bàn (chuyển trạng thái về empty)
+      // 3. Hoàn tất order trên server & giải phóng bàn
+      try {
+        await tableOrderApi.complete(table.id, exportDoc?.id);
+      } catch (sErr) {
+        console.warn('Lỗi hoàn tất order trên server:', sErr);
+      }
+
       await diningTablesStore.update(table.id, {
         status: 'empty',
         currentDocId: null,
@@ -364,7 +541,19 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
   };
 
   return (
-    <div className="mb-order-wrap" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 120px)', minHeight: '600px', background: '#f1f5f9', padding: '12px', gap: '12px' }}>
+    <div
+      className="mb-order-wrap"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: 'calc(100vh - 120px)',
+        minHeight: '600px',
+        background: '#f1f5f9',
+        padding: '12px',
+        gap: '12px',
+        boxSizing: 'border-box',
+      }}
+    >
       {/* Top Header Bar */}
       <div style={{ background: '#fff', padding: '12px 18px', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -375,6 +564,27 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
             style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', fontSize: '13.5px', fontWeight: '600', borderRadius: '6px' }}
           >
             ← {t('minibar.map') || 'Sơ đồ bàn'}
+          </button>
+          <button
+            type="button"
+            className="tb"
+            onClick={() => { window.location.hash = '#kitchen'; }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 12px',
+              fontSize: '13px',
+              fontWeight: '700',
+              borderRadius: '6px',
+              background: '#fef3c7',
+              color: '#92400e',
+              border: '1px solid #fde68a',
+              cursor: 'pointer'
+            }}
+            title="Mở màn hình bếp (KDS)"
+          >
+            🍳 {t('kitchen.title') || 'Bếp'}
           </button>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -392,7 +602,7 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
         </div>
 
         {/* Master inputs strip: Khách hàng & Kho xuất */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span style={{ fontSize: '13px', fontWeight: '600', color: '#475569' }}>{t('minibar.customer') || 'Khách hàng'}:</span>
             <div style={{ width: '220px' }}>
@@ -575,7 +785,7 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
           {/* Bill header */}
           <div style={{ padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '15px', fontWeight: '700', color: '#0f172a' }}>
-              📋 {t('minibar.orderList') || 'Phiếu gọi món'} ({lines.length} {t('minibar.item') || 'món'})
+              📋 {t('minibar.orderList') || 'Phiếu gọi món'} ({activeLines.length} {t('minibar.item') || 'món'})
             </span>
             {lines.length > 0 && (
               <button
@@ -589,8 +799,8 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
             )}
           </div>
 
-          {/* Lines table */}
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          {/* Lines container with 2 sections: Pending items & Sent items */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
             {lines.length === 0 ? (
               <div style={{ padding: '40px 20px', textAlign: 'center', color: '#94a3b8' }}>
                 <span style={{ fontSize: '36px' }}>☕</span>
@@ -598,74 +808,175 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
                 <p style={{ fontSize: '12.5px', color: '#cbd5e1' }}>{t('minibar.selectItemsHint') || 'Bấm vào món bên trái để thêm vào đơn hàng.'}</p>
               </div>
             ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b' }}>
-                    <th style={{ padding: '8px 10px', textAlign: 'left' }}>{t('minibar.item') || 'Tên món'}</th>
-                    <th style={{ padding: '8px 6px', textAlign: 'center', width: '90px' }}>{t('minibar.qty') || 'Số lượng'}</th>
-                    <th style={{ padding: '8px 10px', textAlign: 'right', width: '90px' }}>{t('minibar.amount') || 'Thành tiền'}</th>
-                    <th style={{ padding: '8px 6px', width: '32px' }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lines.map((item, idx) => (
-                    <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '8px 10px' }}>
-                        <div style={{ fontWeight: '600', color: '#1e293b' }}>{item.productName}</div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                          <span style={{ fontSize: '11.5px', color: '#64748b' }}>{vnd(item.price)}/{item.unit}</span>
-                          <input
-                            type="text"
-                            placeholder={t('minibar.note') || 'Ghi chú...'}
-                            value={item.note || ''}
-                            onChange={(e) => handleUpdateLineNote(idx, e.target.value)}
-                            style={{ height: '22px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '0 6px', width: '130px' }}
-                          />
-                        </div>
-                      </td>
-                      <td style={{ padding: '8px 6px', textAlign: 'center' }}>
-                        <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #cbd5e1', borderRadius: '4px', overflow: 'hidden' }}>
+              <>
+                {/* SECTION 1: Pending items waiting to be sent to kitchen */}
+                {pendingLines.length > 0 && (
+                  <div style={{ background: '#fffbeb', border: '1px solid #fef08a', borderRadius: '8px', marginBottom: '14px', overflow: 'hidden' }}>
+                    <div style={{ padding: '8px 12px', background: '#fef3c7', borderBottom: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '13px', fontWeight: '700', color: '#b45309' }}>
+                        🟡 {t('minibar.pendingItems') || 'Món mới chọn (Chờ gửi bếp)'} ({pendingLines.length})
+                      </span>
+                      <span style={{ fontSize: '11px', color: '#92400e', fontStyle: 'italic' }}>
+                        Bấm "GỬI BẾP" bên dưới để báo chế biến
+                      </span>
+                    </div>
+
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                      <tbody>
+                        {pendingLines.map((item, pIdx) => {
+                          const idx = lines.findIndex((l) => (item.id && l.id === item.id) || (item._key && l._key === item._key) || (l.productId === item.productId && l.status === 'pending'));
+                          const rowKey = item.id ? `item_${item.id}` : (item._key || `p_${item.productId}_${pIdx}`);
+                          return (
+                            <tr key={rowKey} style={{ borderBottom: '1px dashed #fde68a' }}>
+                              <td style={{ padding: '8px 10px' }}>
+                                <div style={{ fontWeight: '600', color: '#1e293b' }}>{item.productName}</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                                  <span style={{ fontSize: '11.5px', color: '#64748b' }}>{vnd(item.price)}/{item.unit}</span>
+                                  <input
+                                    type="text"
+                                    placeholder={t('minibar.note') || 'Ghi chú (ít đá, không cay...)'}
+                                    value={item.note || ''}
+                                    onChange={(e) => handleUpdateLineNote(idx, e.target.value)}
+                                    style={{ height: '22px', fontSize: '11px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 6px', width: '140px', background: '#fff' }}
+                                  />
+                                </div>
+                              </td>
+                              <td style={{ padding: '8px 6px', textAlign: 'center', width: '90px' }}>
+                                <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #cbd5e1', borderRadius: '4px', overflow: 'hidden', background: '#fff' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateQty(idx, -1)}
+                                    style={{ width: '22px', height: '24px', background: '#f8fafc', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
+                                  >
+                                    -
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={item.qty}
+                                    onChange={(e) => handleSetQty(idx, e.target.value)}
+                                    style={{ width: '32px', height: '24px', border: 'none', borderLeft: '1px solid #cbd5e1', borderRight: '1px solid #cbd5e1', textAlign: 'center', fontWeight: '600', fontSize: '12.5px' }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateQty(idx, 1)}
+                                    style={{ width: '22px', height: '24px', background: '#f8fafc', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: '600', color: '#b45309', width: '85px' }}>
+                                {vnd((item.qty || 0) * (item.price || 0))}
+                              </td>
+                              <td style={{ padding: '8px 6px', textAlign: 'center', width: '30px' }}>
+                                <button
+                                  type="button"
+                                  className="xbtn"
+                                  style={{ fontSize: '12px', color: '#94a3b8' }}
+                                  title={t('common.delete') || 'Xóa món'}
+                                  onClick={() => handleRemoveLine(idx)}
+                                >
+                                  ✕
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* SECTION 2: Sent items grouped by round */}
+                {sentByRound.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: '700', color: '#334155', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>🛎️ {t('minibar.sentItems') || 'Món đã gửi bếp'} ({sentLines.filter(it => it.status !== 'cancelled').length} món)</span>
+                    </div>
+
+                    {sentByRound.map(([roundNum, roundItems]) => (
+                      <div key={roundNum} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', marginBottom: '10px', overflow: 'hidden' }}>
+                        {/* Round header */}
+                        <div style={{ padding: '6px 12px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '12px', fontWeight: '700', color: '#0369a1' }}>
+                            🔖 {t('minibar.round') || 'ĐỢT'} {roundNum} ({roundItems.length} món)
+                          </span>
                           <button
                             type="button"
-                            onClick={() => handleUpdateQty(idx, -1)}
-                            style={{ width: '24px', height: '26px', background: '#f8fafc', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
+                            className="tb"
+                            onClick={() => handleReprintRound(roundNum, roundItems)}
+                            style={{ padding: '2px 8px', fontSize: '11px', borderRadius: '4px', fontWeight: '600', color: '#0284c7' }}
+                            title="In lại phiếu báo bếp cho đợt này"
                           >
-                            -
-                          </button>
-                          <input
-                            type="number"
-                            min="1"
-                            value={item.qty}
-                            onChange={(e) => handleSetQty(idx, e.target.value)}
-                            style={{ width: '36px', height: '26px', border: 'none', borderLeft: '1px solid #cbd5e1', borderRight: '1px solid #cbd5e1', textAlign: 'center', fontWeight: '600', fontSize: '13px' }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateQty(idx, 1)}
-                            style={{ width: '24px', height: '26px', background: '#f8fafc', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
-                          >
-                            +
+                            🖨️ {t('minibar.printKitchenTicket') || 'In phiếu Bếp/Bar'}
                           </button>
                         </div>
-                      </td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: '600', color: '#047857' }}>
-                        {vnd((item.qty || 0) * (item.price || 0))}
-                      </td>
-                      <td style={{ padding: '8px 6px', textAlign: 'center' }}>
-                        <button
-                          type="button"
-                          className="xbtn"
-                          style={{ fontSize: '12px', color: '#94a3b8' }}
-                          title={t('common.delete') || 'Xóa món'}
-                          onClick={() => handleRemoveLine(idx)}
-                        >
-                          ✕
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+
+                        {/* Round items list */}
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                          <tbody>
+                            {roundItems.map((item) => {
+                              const isCancelled = item.status === 'cancelled';
+                              return (
+                                <tr key={item.id} style={{ borderBottom: '1px solid #f8fafc', background: isCancelled ? '#fef2f2' : 'transparent' }}>
+                                  <td style={{ padding: '8px 10px' }}>
+                                    <div style={{ fontWeight: '600', color: isCancelled ? '#94a3b8' : '#1e293b', textDecoration: isCancelled ? 'line-through' : 'none' }}>
+                                      {item.productName}
+                                    </div>
+                                    <div style={{ fontSize: '11.5px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <span>x{item.qty} {item.unit}</span> · <span>{vnd(item.price)}</span>
+                                      {item.note && <span style={{ color: '#0369a1', fontStyle: 'italic' }}>({item.note})</span>}
+                                      {isCancelled && item.cancelReason && (
+                                        <span style={{ color: '#dc2626', fontWeight: '600' }}>[Lý do: {item.cancelReason}]</span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: '8px 6px', textAlign: 'center', width: '90px' }}>
+                                    {isCancelled ? (
+                                      <span style={{ background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', padding: '2px 6px', borderRadius: '4px', fontSize: '10.5px', fontWeight: '700' }}>
+                                        {t('minibar.statusCancelled') || 'Đã hủy'}
+                                      </span>
+                                    ) : item.status === 'served' ? (
+                                      <span style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', padding: '2px 6px', borderRadius: '4px', fontSize: '10.5px', fontWeight: '800', display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                                        ✅ {t('minibar.statusServed') || 'Bếp đã xong'}
+                                      </span>
+                                    ) : item.status === 'preparing' ? (
+                                      <span style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a', padding: '2px 6px', borderRadius: '4px', fontSize: '10.5px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                                        🔥 {t('minibar.statusPreparing') || 'Đang nấu'}
+                                      </span>
+                                    ) : (
+                                      <span style={{ background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', padding: '2px 6px', borderRadius: '4px', fontSize: '10.5px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                                        ⏳ {t('minibar.statusSent') || 'Chờ làm'}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: '600', color: isCancelled ? '#94a3b8' : '#047857', width: '85px', textDecoration: isCancelled ? 'line-through' : 'none' }}>
+                                    {vnd((item.qty || 0) * (item.price || 0))}
+                                  </td>
+                                  <td style={{ padding: '8px 6px', textAlign: 'center', width: '30px' }}>
+                                    {!isCancelled && (
+                                      <button
+                                        type="button"
+                                        className="xbtn"
+                                        style={{ fontSize: '11px', color: '#ef4444' }}
+                                        title={t('common.cancel') || 'Hủy món này'}
+                                        onClick={() => handlePromptCancelItem(item)}
+                                      >
+                                        ✕
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -683,7 +994,7 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
             </div>
 
             {/* Totals row */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
               <div>
                 <span style={{ fontSize: '13px', color: '#64748b' }}>{t('minibar.totalQty') || 'Tổng số lượng'}:</span>{' '}
                 <b style={{ fontSize: '14px', color: '#0f172a' }}>{totalQty}</b> {t('minibar.portions') || 'phần'}
@@ -696,12 +1007,71 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
               </div>
             </div>
 
-            {/* Action buttons row */}
+            {/* Big Send to Kitchen Button */}
+            <button
+              type="button"
+              className="pb"
+              disabled={sendingKitchen || pendingLines.length === 0}
+              onClick={handleSendToKitchen}
+              style={{
+                width: '100%',
+                padding: '11px',
+                fontSize: '15px',
+                fontWeight: '800',
+                borderRadius: '8px',
+                background: pendingLines.length > 0 ? '#ea580c' : '#94a3b8',
+                borderColor: pendingLines.length > 0 ? '#c2410c' : '#94a3b8',
+                color: '#fff',
+                marginBottom: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                boxShadow: pendingLines.length > 0 ? '0 2px 8px rgba(234, 88, 12, 0.35)' : 'none',
+                cursor: pendingLines.length > 0 ? 'pointer' : 'not-allowed',
+              }}
+            >
+              <span>{sendingKitchen ? '⏳' : '🛎️'}</span>
+              {sendingKitchen
+                ? (t('minibar.sendingToKitchen') || 'Đang gửi bếp…')
+                : `${t('minibar.sendToKitchen') || 'GỬI BẾP / BAR'} ${pendingLines.length > 0 ? `(${pendingLines.length} món mới)` : ''}`}
+            </button>
+
+            {/* Tùy chọn tự động in phiếu bếp khi gửi */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
+              <label
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '12px',
+                  color: '#64748b',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+                title={t('minibar.autoPrintTicketHint') || 'Tự động mở hộp thoại in phiếu khi bấm Gửi bếp (mặc định tắt)'}
+              >
+                <input
+                  type="checkbox"
+                  checked={autoPrintKitchen}
+                  onChange={(e) => {
+                    setAutoPrintKitchen(e.target.checked);
+                    try {
+                      localStorage.setItem('kds_auto_print', String(e.target.checked));
+                    } catch (_) {}
+                  }}
+                  style={{ cursor: 'pointer' }}
+                />
+                <span>🖨️ {t('minibar.autoPrintTicket') || 'Tự động in phiếu khi gửi bếp'}</span>
+              </label>
+            </div>
+
+            {/* Action buttons row: Interim bill & Transfer */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
               <button
                 type="button"
                 className="tb"
-                disabled={lines.length === 0}
+                disabled={activeLines.length === 0}
                 onClick={handlePrintInterimBill}
                 style={{ padding: '8px', fontSize: '13px', fontWeight: '600', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
               >
@@ -710,7 +1080,7 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
               <button
                 type="button"
                 className="tb"
-                disabled={lines.length === 0}
+                disabled={activeLines.length === 0}
                 onClick={() => setShowTransferModal(true)}
                 style={{ padding: '8px', fontSize: '13px', fontWeight: '600', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
               >
@@ -722,7 +1092,7 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
             <button
               type="button"
               className="pb"
-              disabled={lines.length === 0 || paying}
+              disabled={activeLines.length === 0 || paying}
               onClick={handleCheckoutAndPay}
               style={{
                 width: '100%',
@@ -736,7 +1106,7 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '8px',
-                cursor: lines.length === 0 || paying ? 'not-allowed' : 'pointer',
+                cursor: activeLines.length === 0 || paying ? 'not-allowed' : 'pointer',
               }}
             >
               <span>💵</span>
@@ -745,6 +1115,63 @@ export function OrderView({ table, onBack, onOrderFinished, can, t: propT }) {
           </div>
         </div>
       </div>
+
+      {/* Cancel Item Reason Modal */}
+      {cancelModalItem && (
+        <div className="modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'grid', placeItems: 'center', padding: '16px' }}>
+          <div style={{ background: '#fff', borderRadius: '10px', width: '100%', maxWidth: '400px', padding: '20px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: '700', color: '#b91c1c' }}>
+              ⚠️ {t('minibar.cancelItemPrompt') || 'Xác nhận hủy món'}
+            </h3>
+            <p style={{ margin: '0 0 12px 0', fontSize: '13.5px', color: '#475569' }}>
+              Bạn đang hủy món <b>{cancelModalItem.productName}</b> (SL: {cancelModalItem.qty}).
+            </p>
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '600', color: '#475569', marginBottom: '6px' }}>
+                Lý do hủy:
+              </label>
+              <input
+                type="text"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="Ví dụ: Bếp hết món, khách đổi ý..."
+                style={{ width: '100%', height: '36px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13.5px' }}
+              />
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                {['Bếp hết nguyên liệu', 'Khách đổi món', 'Chờ quá lâu', 'Nhập nhầm'].map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    className="tb"
+                    onClick={() => setCancelReason(tag)}
+                    style={{ fontSize: '11.5px', padding: '3px 8px', borderRadius: '12px' }}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                type="button"
+                className="tb"
+                onClick={() => setCancelModalItem(null)}
+                style={{ padding: '8px 14px', borderRadius: '6px' }}
+              >
+                {t('common.cancel') || 'Bỏ qua'}
+              </button>
+              <button
+                type="button"
+                className="pb"
+                onClick={handleConfirmCancelItem}
+                style={{ padding: '8px 16px', borderRadius: '6px', background: '#dc2626', borderColor: '#b91c1c' }}
+              >
+                {t('common.confirm') || 'Xác nhận hủy món'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Transfer Table Modal */}
       {showTransferModal && (

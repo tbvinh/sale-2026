@@ -7,6 +7,7 @@ public class UserRequest {
 
     public String username;
     public String password;
+    public String pin;
     public String fullName;
     public String imageUrl;
     public String role;
