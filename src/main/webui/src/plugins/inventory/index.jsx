@@ -14,7 +14,7 @@ import { ArrowDownToLine, ArrowRightLeft, BarChart3, BookOpen, FileText, Receipt
 import { useDebounced } from '../../core/useDebounced.js';
 import { useAsyncQuery } from '../../core/useasyncquery.js';
 
-import { suppliersStore, customersStore, warehousesStore, banksStore, materialsStore, searchSuppliers, searchCustomers, searchWarehouses, searchBanks, searchMaterials, vnd, formatDate, registerReset } from '../../core/masterdata.js';
+import { suppliersStore, customersStore, warehousesStore, banksStore, materialsStore, searchSuppliers, searchCustomers, searchWarehouses, searchBanks, searchMaterials, vnd, formatDate, formatDateTime, registerReset } from '../../core/masterdata.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const firstOfMonth = () => today().slice(0, 8) + '01';
@@ -889,7 +889,7 @@ function ListView({ state, setState, docs, total, can, t, error, loading, onDele
                   <input type="checkbox" checked={selSet.has(d.id)} onChange={() => toggleOne(d.id)} aria-label={t('inv.selectRow') + ' ' + d.no} />
                 </td>
               )}
-              <td>{d.no}</td><td>{t('inv.' + d.type)}</td><td>{d.partner?.name}</td><td>{formatDate(d.date)}</td><td>{vnd(lineTotal(d.lines))}</td>
+              <td>{d.no}</td><td>{t('inv.' + d.type)}</td><td>{d.partner?.name}</td><td style={{ whiteSpace: 'nowrap' }}>{d.createdAt ? formatDateTime(d.createdAt) : formatDate(d.date)}</td><td>{vnd(lineTotal(d.lines))}</td>
               <td className="acts" style={{ whiteSpace: 'nowrap' }}>
                 {d.type === 'export' && (
                   <button type="button" className="tb" style={{ padding: '3px 8px', fontSize: 13, marginRight: 4, fontWeight: 600, color: '#0284c7' }} title="In nhiệt K80/K58" onClick={() => printThermalReceipt(d, t)}>🧾 In nhiệt</button>

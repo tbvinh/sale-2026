@@ -220,8 +220,24 @@ export function thermalReceiptHtml(doc, t, company, customConfig) {
   const totalQty = rows.reduce((s, l) => s + (Number(l.qty) || 0), 0);
   const total = rows.reduce((s, l) => s + amount(l), 0);
 
-  const [y = '', m = '', d = ''] = String(doc?.date ?? '').split('-');
-  const dateFormatted = (d && m && y) ? `${d}/${m}/${y}` : (doc?.date || '');
+  let dateFormatted = '';
+  if (doc?.createdAt) {
+    try {
+      const cd = new Date(doc.createdAt);
+      if (!isNaN(cd.getTime())) {
+        const dd = String(cd.getDate()).padStart(2, '0');
+        const mm = String(cd.getMonth() + 1).padStart(2, '0');
+        const yy = cd.getFullYear();
+        const hh = String(cd.getHours()).padStart(2, '0');
+        const mi = String(cd.getMinutes()).padStart(2, '0');
+        dateFormatted = `${dd}/${mm}/${yy} ${hh}:${mi}`;
+      }
+    } catch (_) {}
+  }
+  if (!dateFormatted) {
+    const [y = '', m = '', d = ''] = String(doc?.date ?? '').split('-');
+    dateFormatted = (d && m && y) ? `${d}/${m}/${y}` : (doc?.date || '');
+  }
 
   // Render danh sách sản phẩm theo kiểu Multi-line (chuyên cho in nhiệt) hoặc Bảng cột
   let itemsHtml = '';
