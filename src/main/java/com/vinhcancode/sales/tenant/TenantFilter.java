@@ -27,7 +27,7 @@ public class TenantFilter implements ContainerRequestFilter {
     public void filter(ContainerRequestContext request) {
         String path = request.getUriInfo().getPath();
         if (path.startsWith("/")) path = path.substring(1);
-        if (path.startsWith("auth") || path.startsWith("companies") || path.startsWith("company/")) return;
+        if (path.startsWith("auth") || path.startsWith("companies") || path.startsWith("company/") || path.startsWith("reports/owner")) return;
 
         String company = request.getHeaderString("X-Company-Id");
         if (company == null || company.isBlank()) {

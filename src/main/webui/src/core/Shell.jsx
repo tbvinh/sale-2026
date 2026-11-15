@@ -128,9 +128,9 @@ export default function Shell() {
 
   const role = user.role;
   const isCompanyOwner = user.roleCode === 'company_admin' || (Array.isArray(user.ownerCompanyIds) && user.ownerCompanyIds.length > 0);
-  const can = (pluginId, action) => role === 'admin' || (pluginId === 'admin' && isCompanyOwner) || !!perms[pluginId]?.[action];
+  const can = (pluginId, action) => role === 'admin' || ((pluginId === 'admin' || pluginId === 'reports') && isCompanyOwner) || !!perms[pluginId]?.[action];
   const plugins = allPlugins.filter((p) => {
-    if (p.adminOnly && role !== 'admin' && !isCompanyOwner) return false;
+    if ((p.adminOnly || p.ownerOnly) && role !== 'admin' && !isCompanyOwner) return false;
     if (role !== 'admin' && !isCompanyOwner && PLUGIN_IDS.includes(p.id)) {
       return can(p.id, 'read');
     }

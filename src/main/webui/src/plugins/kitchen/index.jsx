@@ -138,7 +138,44 @@ export function KitchenScreen({ can = () => true, t = (k) => k }) {
   const [sseStatus, setSseStatus] = useState('connecting'); // connected | connecting
   const [nowTime, setNowTime] = useState(() => new Date());
   const [newOrderAlert, setNewOrderAlert] = useState(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const companyId = useTenant();
+
+  // Listen to fullscreen state changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+      const mainEl = document.querySelector('.main');
+      setIsFullscreen(Boolean(fsEl && (fsEl === mainEl || mainEl?.contains(fsEl) || fsEl.contains(mainEl))));
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    handleFullscreenChange();
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  // Toggle Fullscreen for class="main"
+  const toggleMainFullscreen = () => {
+    const mainEl = document.querySelector('.main');
+    if (!mainEl) return;
+    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if (!fsEl) {
+      if (mainEl.requestFullscreen) {
+        mainEl.requestFullscreen().catch(() => {});
+      } else if (mainEl.webkitRequestFullscreen) {
+        mainEl.webkitRequestFullscreen();
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      }
+    }
+  };
 
   // Digital clock update every 1 second
   useEffect(() => {
@@ -324,7 +361,7 @@ export function KitchenScreen({ can = () => true, t = (k) => k }) {
         color: '#f8fafc',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         minHeight: '100%',
-        height: 'calc(100vh - 120px)',
+        height: isFullscreen ? '100vh' : 'calc(100vh - 120px)',
         overflow: 'hidden',
       }}
     >
@@ -431,6 +468,26 @@ export function KitchenScreen({ can = () => true, t = (k) => k }) {
             }}
           >
             {loading ? '⏳…' : '🔄 ' + (t('kitchen.refresh') || 'Làm mới')}
+          </button>
+
+          {/* Fullscreen Toggle for class="main" */}
+          <button
+            type="button"
+            onClick={toggleMainFullscreen}
+            style={{
+              padding: '6px 12px',
+              borderRadius: '6px',
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              border: '1px solid',
+              borderColor: isFullscreen ? '#38bdf8' : '#475569',
+              background: isFullscreen ? '#0369a1' : '#334155',
+              color: '#f8fafc',
+            }}
+            title={isFullscreen ? (t('kitchen.exitFullscreen') || '✖ Thu nhỏ') : (t('kitchen.fullscreen') || '⛶ Toàn màn hình')}
+          >
+            {isFullscreen ? (t('kitchen.exitFullscreen') || '✖ Thu nhỏ') : (t('kitchen.fullscreen') || '⛶ Toàn màn hình')}
           </button>
         </div>
       </header>

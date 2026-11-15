@@ -60,6 +60,7 @@ body.resizing{cursor:col-resize;user-select:none}
 .invtable td.num,.invtable th.num{text-align:right;white-space:nowrap}
 .dot{width:10px;height:10px;border-radius:50%}
 .main{flex:1;min-width:0;overflow:auto}
+.main:fullscreen,.main:-webkit-full-screen{width:100vw!important;height:100vh!important;padding-bottom:0!important;background:#0f172a}
 .pad{padding:20px}.muted{color:var(--muted)}.empty{color:var(--muted);padding:24px}
 .mediaupload{display:flex;gap:12px;align-items:flex-start}
 .mediaframe{flex:none;width:120px;height:96px;border:1px dashed var(--line);border-radius:8px;background:var(--panel);display:grid;place-items:center;overflow:hidden;font-size:30px}
